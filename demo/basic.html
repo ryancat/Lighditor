@@ -1,0 +1,29 @@
+<!doctype html>
+
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <title>Basic support for Lighditor</title>
+    <link rel="stylesheet" href="./style.css">
+  </head>
+
+  <body>
+    <h1>Basic support for Lighditor</h1>
+    <a href="https://codepen.io/ryancat/pen/mwzXdj">Codepen demo</a>
+
+    <div id="myeditor"></div>
+
+  </body>
+
+  <script type="text/javascript" src="/dist/lighditor.js"></script>
+
+  <script type="text/javascript">
+    var editor = new Lighditor({
+      element: document.getElementById('myeditor')
+    })
+
+    editor.build()
+  </script>
+
+</html>

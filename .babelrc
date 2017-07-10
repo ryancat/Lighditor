@@ -1,0 +1,4 @@
+{
+  "presets": ["es2015", "stage-2", "flow"],
+  "plugins": ["transform-flow-comments", "transform-class-properties"]
+}
