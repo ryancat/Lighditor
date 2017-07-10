@@ -1,14 +1,17 @@
 # Lighditor
 #### A light weight and light fast web editor
 
-## Demo
+### Demo
+- [Basic support for plain text](https://codepen.io/ryancat/pen/mwzXdj)
 
-## How to use
+### How to use
 
-## Configuration
+### Configuration
 
-## New languages
+### New languages
 
-## New parser
+### New parser
 
-## Help me make it better!
+### Help me make it better!
+
+### MIT license

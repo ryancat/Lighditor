@@ -8,9 +8,12 @@
 // 5.
 //
 
+import lighditorStyle from './lighditor.scss'
+
 type Position = {
   row: number,
   column: number
+  // charIndex: number
 }
 
 type Selection = {
@@ -36,10 +39,16 @@ type LighditorState = {
   }
 }
 
+type RowInfo = {
+  element: HTMLElement | Text,
+  row: number
+}
+
 const EditorClass = {
   CONTAINER: 'lighditorContainer',
   ELEMENT: 'lighditorRawElement',
-  EDITOR_ELEMENT: 'lighditorElement'
+  EDITOR_ELEMENT: 'lighditorElement',
+  EDITOR_ROW: 'lighditorRow'
 }
 
 const positionTypeEnum = {
@@ -48,11 +57,6 @@ const positionTypeEnum = {
 }
 
 type PositionTypeEnum = $Keys<typeof positionTypeEnum>
-
-const ERROR_POSITION: Position = {
-  row: -1,
-  column: -1
-}
 
 // Feature detection
 let featureGetSelection = !!window.getSelection
@@ -146,19 +150,41 @@ class Lighditor {
     this.editorElement.addEventListener('keyup', this.handleKeyup.bind(this))
   }
 
+  /**
+   * Render the editor element inner html based on current editor state
+   */
+  render (): void {
+    // Render the text content
+    let textContent: string = this.editorState.textContent
+    let textContentRows: string[] = textContent.split('\n')
+    let html: string = ''
+
+    textContentRows.forEach((textContentRow) => {
+      html += '<div class="' + EditorClass.EDITOR_ROW + '" data-lighditor-type="row">' + textContentRow + '</div>'
+    })
+
+    this.editorElement.innerHTML = html
+
+    // Render the selection/cursor
+    this.restoreSelection()
+  }
+
   /***** Event handlers *****/
   handleKeydown (evt: KeyboardEvent) {
 
   }
 
   handleKeyup (evt: KeyboardEvent) {
+    let textContent: string = this._getInputText()
+
+    // TODO: update selection if arrow key is up
+    this.updateSelection()
+
     // TODO: We may not need to update the whole editor text content
     // but only the section that is actually changed
     // this.saveSelection()
-    this.setTextContent(this.editorElement.textContent)
+    this.setTextContent(textContent)
     // this.restoreSelection()
-
-    // TODO: update selection if arrow key is up
   }
 
   handleMouseup (evt: MouseEvent) {
@@ -184,6 +210,12 @@ class Lighditor {
     this.editorState = {
       ...editorState
     }
+
+    // When we set editor state, we need to re-render the content
+    // based on given parser
+    setTimeout(() => {
+      this.render()
+    })
   }
 
   setTextContent (textContent: string): void {
@@ -208,6 +240,121 @@ class Lighditor {
     this.onSelectionChange(selection, oldSelection)
   }
 
+  /***** Text content *****/
+  _dfsTraverseNode (callback: (node: Node, row: number, column: number) => ?boolean): void {
+    let nodeStack = [this.editorElement]
+    let row: number = 0
+    let column: number = 0
+    let node: ?Node
+
+    while (node = nodeStack.pop()) {
+      if (this.isRowElement(node)) {
+        row = this.getRowIndex(node)
+        column = 0
+      }
+
+      // if (node instanceof Text) {
+      //   if (callback(node, row, column)) {
+      //     column += node.length
+      //     break;
+      //   }
+      // } else {
+        
+      // }
+
+      if (callback(node, row, column)) {
+        break
+      }
+
+      if (node instanceof Text) {
+        column += node.length
+      }
+
+      if (node.childNodes) {
+        let childNodes = node.childNodes
+        let childIndex: number = childNodes.length
+
+        while (childIndex--) {
+          nodeStack.push(childNodes[childIndex])
+        }
+      }
+    }
+  }
+
+  /**
+   * Get the text from the actual contents, including new lines
+   */
+  _getInputText (): string {
+    let contents: Array<string[]> = []
+    // let lastRowElement: Node = this.getRowElementByIndex(this.editorElement.childNodes.length - 1)
+
+    this._dfsTraverseNode((node: Node, row: number, column: number) => {
+      if (this.isRowElement(node)) {
+        // Warn if current row has content already. By DFS we are guaranteed
+        // the row element is ran againast with first
+        if (typeof contents[row] !== 'undefined') {
+          console.warn('Row ' + row + ' has rendered')
+        }
+
+        // Make sure each row has a new line
+        contents[row] = []
+      }
+
+      if (node instanceof Text) {
+        let rowContent = contents[row]
+
+        // Warn if we have empty positions
+        if (column > 0 && typeof rowContent[column - 1] === 'undefined') {
+          console.warn('Row ' + row + ' has unassigned character at column ' + (column - 1))
+          // Need to make up all unassigned position with space key
+          let col = column
+          while (typeof rowContent[col - 1] === 'undefined') {
+            rowContent[col - 1] = ' '
+            col--
+          }
+
+          // TODO: Should we return true and stop traversal?
+        }
+
+        // Warn if we already have character at column position
+        if (rowContent.length > column) {
+          console.error('Row ' + row + ' has exist character at column ' + column)
+          return true
+        }
+
+        // Copy nodeText to row content
+        let nodeText = node.textContent
+        for (let i = column; i < nodeText.length; i++) {
+          rowContent[i] = nodeText[i - column]
+        }
+      } 
+    })
+
+    return contents.map((rowArray) => { return rowArray.join('') }).join('\n')
+  }
+
+  getRowIndex (node: Node): number {
+    let rowNode: ?RowInfo = this._getParentRowNode(node)
+    if (!rowNode) {
+      return -1
+    } else {
+      return rowNode.row
+    }
+  }
+
+  getRowElementByIndex (row: number): ?HTMLElement | ?Text {
+    let node = this.editorElement.childNodes[row]
+    if ((node instanceof HTMLElement) || (node instanceof Text)) {
+      return node
+    } else {
+      return null
+    }
+  }
+
+  isRowElement (node: Node): boolean {
+    return node.parentElement === this.editorElement
+  }
+
   /***** Cursor and selection *****/
   getSelection (): Selection {
     return this.editorState.selection
@@ -216,25 +363,43 @@ class Lighditor {
   /**
    * Recursively goes up and get the row node from current node
    */
-  _getParentRowNode (node: HTMLElement): ?HTMLElement {
+  _getParentRowNode (node: Node): ?RowInfo {
     let runningNode = node
 
-    while (runningNode && runningNode !== this.editorElement && !runningNode.dataset['lighditorType'] === 'row') {
+    while (runningNode && runningNode !== this.editorElement) {
+      // if ((runningNode instanceof HTMLElement) && runningNode.dataset['lighditorType'] === 'row') {
+      //   // Found the row wrapper
+      //   let rowCount = 0
+      //   let n = runningNode
+      //   for (; (n = n.previousSibling); rowCount++) {}
+
+      //   return {
+      //     element: runningNode,
+      //     row: rowCount
+      //   }
+      // }
+
+      if (((runningNode instanceof HTMLElement) || (runningNode instanceof Text)) && runningNode.parentElement === this.editorElement) {
+        let rowCount = 0
+        let n = runningNode
+        for (; (n = n.previousSibling); rowCount++) {}
+
+        return {
+          element: runningNode,
+          row: rowCount
+        }
+      }
+
       runningNode = runningNode.parentElement
     }
 
-    if (runningNode && (runningNode instanceof HTMLElement)) {
-      return runningNode
-    } else {
-      return null
-    }
-
+    return null
   }
 
   _getSelectionNodePosition (positionType: PositionTypeEnum): ?Position {
     if (featureGetSelection && featureCreateRange) {
       let currentSelection = window.getSelection()
-      let node: HTMLElement
+      let node: HTMLElement | Text
 
       switch (positionType) {
         case 'START':
@@ -253,21 +418,25 @@ class Lighditor {
         return null
       }
 
-      let rowNode = this._getParentRowNode(node)
+      let rowInfo: ?RowInfo = this._getParentRowNode(node)
 
-      if (!rowNode) {
+      if (!rowInfo) {
         return null
       }
 
-      let rangeBefore = document.createRange()
-      rangeBefore.selectNodeContents(rowNode)
-      rangeBefore.setEnd(node, 0)
+      let rangeBeforeNodeInRow = document.createRange()
+      rangeBeforeNodeInRow.selectNodeContents(rowInfo.element)
+      rangeBeforeNodeInRow.setEnd(node, 0)
+
+      // let rangeBeforeNodeInEditor = document.createRange()
+      // rangeBeforeNodeInEditor.selectNodeContents(this.editorElement)
+      // rangeBeforeNodeInEditor.setEnd(node, 0)
 
       return {
-        row: +rowNode.dataset['row'],
-        column: rangeBefore.toString().length
+        row: rowInfo.row,
+        column: rangeBeforeNodeInRow.toString().length
+        // charIndex: rangeBeforeNodeInEditor.toString().length
       }
-
     }
     else {
       // TODO: add support for old IE
@@ -355,12 +524,109 @@ class Lighditor {
 
   }
 
-  restoreSelection (selection: Selection): void {
+  // Restore the saved selection and cursor position
+  // REF: https://stackoverflow.com/questions/13949059/persisting-the-changes-of-range-objects-after-selection-in-html
+  restoreSelection (): void {
+    if (featureGetSelection && featureCreateRange) {
+      let selection = this.editorState.selection
 
+      if (!selection) {
+        return
+      }
+
+      // Set the range from start
+      let range = document.createRange()
+      // let startRowElement = this.editorElement.querySelector('.' + EditorClass.EDITOR_ROW + '[data-lighditor-row="' + selection.start.row + '"]')
+      // let endRowElement = this.editorElement.querySelector('.' + EditorClass.EDITOR_ROW + '[data-lighditor-row="' + selection.end.row + '"]')
+
+      let startRowElement = this.getRowElementByIndex(selection.start.row)
+      let endRowElement = this.getRowElementByIndex(selection.end.row)
+
+      if (!startRowElement || !endRowElement) {
+        return
+      }
+
+      range.setStart(startRowElement, 0)
+      range.collapse(true)
+
+      let nodeStack = [this.editorElement]
+      let foundStart: boolean = false
+      let stop: boolean = false
+      let charIndex: number = 0
+
+      this._dfsTraverseNode((node: Node, row: number, column: number) => {
+        if (node instanceof Text) {
+          if (row === selection.start.row) {
+            // let nextCharIndex = charIndex + node.length
+
+            let endTextNodeColumn = column + node.length
+            let startColumn = selection.start.column
+            let endColumn = selection.end.column
+
+            if (!foundStart && startColumn >= column && startColumn <= endTextNodeColumn) {
+              // Found the text node where selection starts
+              range.setStart(node, startColumn - column)
+              foundStart = true
+            }
+
+            if (foundStart && endColumn >= column && endColumn <= endTextNodeColumn) {
+              // Found the text node where selection ends
+              range.setEnd(node, endColumn - column)
+            }
+
+            // charIndex = nextCharIndex
+          }
+        }
+      })
+
+      let sel = window.getSelection()
+      sel.removeAllRanges()
+      sel.addRange(range)
+    }
+
+
+    // if window.getSelection? and document.createRange?
+    //   return unless selection
+
+    //   charIndex = 0
+    //   range = document.createRange()
+    //   range.setStart @inputMask, 0
+    //   range.collapse true
+
+    //   nodeStack = [@inputMask]
+    //   foundStart = false
+    //   stop = false
+
+    //   while (not stop and (node = nodeStack.pop()))
+    //     if node.nodeType is window.Node.TEXT_NODE
+    //       nextCharIndex = charIndex + node.length
+    //       if not foundStart and selection.start >= charIndex and selection.start <= nextCharIndex
+    //         range.setStart node, selection.start - charIndex
+    //         foundStart = true
+
+    //       if foundStart && selection.end >= charIndex && selection.end <= nextCharIndex
+    //         range.setEnd(node, selection.end - charIndex)
+    //         stop = true
+
+    //       charIndex = nextCharIndex
+
+    //     else
+    //       children = node.childNodes
+    //       nodeIndex = children.length
+    //       while nodeIndex--
+    //         nodeStack.push children[nodeIndex]
+
+    //   sel = window.getSelection()
+    //   sel.removeAllRanges()
+    //   sel.addRange range
+    // else
+    //   console.warn 'Editor selection persist feature does not support'
+
+    // @selection = null
   }
 
   getCursorPosition (): Position {
-    let cursorPosition: Position = { row: 0, column: 0 }
+    let cursorPosition: Position = { row: 0, column: 0, charIndex: 0 }
 
 
 

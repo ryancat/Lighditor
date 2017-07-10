@@ -1,0 +1,12 @@
+.lighditorElement {
+  height: 200px;
+
+  outline: none;
+  border: 1px solid black;
+
+  .lighditorRow {
+    font-family: courier;
+    height: 14px;
+    line-height: 14px;
+  }
+}

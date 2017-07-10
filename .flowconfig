@@ -6,3 +6,7 @@
 [libs]
 
 [options]
+module.file_ext=.scss
+module.file_ext=.js
+
+module.name_mapper='.*\.scss$' -> 'empty/object'
