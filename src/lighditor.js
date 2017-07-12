@@ -20,11 +20,6 @@ type Selection = {
   end: Position
 }
 
-type Range = {
-  start: Position,
-  end: Position
-}
-
 type LighditorConfig = {
   initTextContent: string
 }
@@ -105,11 +100,29 @@ class Lighditor {
   _processPosition: Position
   render: () => mixed
 
-  constructor (props: LighditorProps) {
-    this.element = props.element
-    this.editorConfig = props.config || {
-      initTextContent: ''
+  constructor (element: HTMLElement, config: LighditorConfig) {
+    this.element = element
+    this.editorConfig = config
+
+    // Error checks
+    if (typeof this.element === 'undefined') {
+      throw new Error('Missing element for editor')
     }
+
+    // Build the editor DOM
+    this._build()
+
+    // Reset editor state
+    this._resetRender()
+
+    // Attach listeners
+    this._listen()
+
+    // Setup placeholder or init text
+    this.setTextContent(this.editorConfig.initTextContent)
+
+    // For debugging
+    Lighditor.debug(() => { window.lighditor = this })
 
     // this.resetRender()
     // this.build()
@@ -121,35 +134,112 @@ class Lighditor {
     // this.render = lighditorUtil.debounce(this.render.bind(this))
   }
 
-  resetRender (): void {
-    this.setEditorState({
-      textContent: '',
-      cursorPosition: { row: 0, column: 0 },
-      selection: {
-        start: { row: 0, column: 0 },
-        end: { row: 0, column: 0 }
-      }
-    })
-  }
-
-  build (config: ?LighditorConfig) {
-    // Error checks
-    if (typeof this.element === 'undefined') {
-      throw new Error('Missing element for editor')
+  // Create a instance of Lighditor class
+  static create (element: HTMLElement, config: ?LighditorConfig) {
+    let actualConfig: LighditorConfig = {
+      initTextContent: ''
     }
 
-    let elementParent = this.element.parentElement
-    if (!elementParent) {
-      throw new Error('Element set to html document is not supported')
-    }
-
-    // Update config
+    // make sure defaults in config
     if (typeof config !== 'undefined') {
       for (let key in config) {
         if (config.hasOwnProperty(key)) {
-          this.editorConfig[key] = config[key]
+          actualConfig[key] = config[key]
         }
       }
+    }
+
+    return new Lighditor(element, actualConfig)
+  }
+
+  static destroy (editor: Lighditor): boolean {
+    if (editor instanceof Lighditor) {
+      return editor._destroy()
+    } else {
+      Lighditor.warn('Try desgroy non-Lighditor: ', editor)
+      return true
+    }
+  }
+
+  static enableLog () {
+    localStorage.setItem('lighditor.enableLog', 'true')
+  }
+
+  static disableLog () {
+    localStorage.setItem('lighditor.enableLog', 'false')
+  }
+
+  static log () {
+    if (localStorage.getItem('lighditor.enableLog') === 'true') {
+      console.log.apply(null, arguments)
+    }
+  }
+
+  static warn () {
+    if (localStorage.getItem('lighditor.enableLog') === 'true') {
+      console.warn.apply(null, arguments)
+    }
+  }
+
+  static enableDebug () {
+    localStorage.setItem('lighditor.enableDebug', 'true')
+  }
+
+  static disableDebug () {
+    localStorage.setItem('lighditor.enableDebug', 'false')
+  }
+
+  static debug (callback: () => mixed) {
+    if (localStorage.getItem('lighditor.enableLog') === 'true') {
+      callback()
+    }
+  }
+
+  /***** Setters *****/
+  setTextContent (textContent: string): void {
+    let oldTextContent = this.editorState.textContent
+
+    if (textContent === oldTextContent) {
+      return
+    }
+
+    this._setEditorState({
+      ...this.editorState,
+      textContent
+    })
+
+    this.onTextContentChange(textContent, oldTextContent)
+  }
+
+  setSelection (selection: Selection): void {
+    let oldSelection = this.editorState.selection
+
+    this._setEditorState({
+      ...this.editorState,
+      selection
+    }, true)
+
+    this.onSelectionChange(selection, oldSelection)
+  }
+
+  /***** Getters *****/
+  getSelection (): Selection {
+    return this.editorState.selection
+  }
+
+  getTextContent (): string {
+    return this.editorState.textContent
+  }
+
+  getCursorPosition (): Position {
+    return this.getSelection().end
+  }
+
+  /***** Build and unbuild *****/
+  _build (): void {
+    let elementParent = this.element.parentElement
+    if (!elementParent) {
+      throw new Error('Element set to html document is not supported')
     }
 
     let wrapperElement: HTMLDivElement = document.createElement('div')
@@ -170,26 +260,30 @@ class Lighditor {
     // Make editor element editable
     this.editorElement.setAttribute('contenteditable', 'true')
     wrapperElement.appendChild(this.editorElement)
-
-    // Reset editor state
-    this.resetRender()
-
-    // Attach listeners
-    this.listen()
-
-    // Setup placeholder or init text
-    this.setTextContent(this.editorConfig.initTextContent || '')
   }
 
-  listen (): void {
-    this.editorElement.addEventListener('keydown', this.handleKeydown.bind(this))
-    this.editorElement.addEventListener('keyup', this.handleKeyup.bind(this))
+  _destroy (): boolean {
+    this._resetRender()
+    let wrapperElement = this.editorElement.parentElement,
+        elementParent: Element
+
+    if (!(wrapperElement instanceof HTMLElement)) {
+      Lighditor.warn('The wrapper of editor is not an HTMLElement, which should not happen')
+    }
+
+    if (wrapperElement && wrapperElement.parentElement instanceof Element) {
+       elementParent = wrapperElement.parentElement
+       elementParent.replaceChild(wrapperElement, this.element)
+    }
+
+    return delete this.editorElement
   }
 
+  /***** render and state *****/
   /**
    * Render the editor element inner html based on current editor state
    */
-  render (): void {
+  _render (): void {
     // Render the text content
     let textContent: string = this.editorState.textContent
     let textContentRows: string[] = textContent.split('\n')
@@ -201,33 +295,65 @@ class Lighditor {
 
     this.editorElement.innerHTML = html
 
-    // Render the selection/cursor
-    this.restoreSelection()
+    // Attach the current selection/cursor
+    this._restoreSelection()
   }
 
-  /***** Event handlers *****/
-  handleKeydown (evt: KeyboardEvent) {
+  _resetRender (): void {
+    this._setEditorState({
+      textContent: '',
+      cursorPosition: { row: 0, column: 0 },
+      selection: {
+        start: { row: 0, column: 0 },
+        end: { row: 0, column: 0 }
+      }
+    })
+  }
+
+  _setEditorState (editorState: LighditorState, silence: boolean = false): void {
+    Lighditor.log((silence ? 'silently ' : '') + 'set editor state: ', editorState)
+
+    this.editorState = {
+      ...editorState
+    }
+
+    // When we set editor state, we need to re-render the content
+    // based on given parser
+    // TODO: Considering use virtual dom to render editor
+    if (!silence) {
+      this._render()
+    }
+  }
+
+  /***** Events *****/
+  _listen (): void {
+    this.editorElement.addEventListener('keydown', this._handleKeydown.bind(this))
+    this.editorElement.addEventListener('keyup', this._handleKeyup.bind(this))
+    this.editorElement.addEventListener('mouseup', this._handleMouseup.bind(this))
+  }
+
+  _handleKeydown (evt: KeyboardEvent) {
 
   }
 
-  handleKeyup (evt: KeyboardEvent) {
-    let textContent: string = this._getInputText()
+  _handleKeyup (evt: KeyboardEvent) {
+    let textContent: string = this._compileTextContent()
 
     // TODO: update selection if arrow key is up
-    this.updateSelection()
+    this._updateSelection()
 
     // TODO: We may not need to update the whole editor text content
     // but only the section that is actually changed
     // this.saveSelection()
     this.setTextContent(textContent)
-    // this.restoreSelection()
+    // this._restoreSelection()
   }
 
-  handleMouseup (evt: MouseEvent) {
-    this.updateSelection()
+  _handleMouseup (evt: MouseEvent) {
+    this._updateSelection()
   }
 
-  /***** Lifecycle events *****/
+  /***** Lifecycle *****/
   /**
    * Called after text content is changed
    */
@@ -239,44 +365,6 @@ class Lighditor {
   onSelectionChange (newSelection: Selection, oldSelection: Selection): void {}
 
 
-  /***** Setters *****/
-  setEditorState (editorState: LighditorState): void {
-    console.log('calling setEditorState: ', editorState)
-
-    this.editorState = {
-      ...editorState
-    }
-
-    // When we set editor state, we need to re-render the content
-    // based on given parser
-    // TODO: Considering use virtual dom to render editor
-    setTimeout(() => {
-      this.render()
-    })
-  }
-
-  setTextContent (textContent: string): void {
-    let oldTextContent = this.editorState.textContent
-
-    this.setEditorState({
-      ...this.editorState,
-      textContent
-    })
-
-    this.onTextContentChange(textContent, oldTextContent)
-  }
-
-  setSelection (selection: Selection): void {
-    let oldSelection = this.editorState.selection
-
-    this.setEditorState({
-      ...this.editorState,
-      selection
-    })
-
-    this.onSelectionChange(selection, oldSelection)
-  }
-
   /***** Text content *****/
   _dfsTraverseNode (callback: (node: Node, row: number, column: number) => ?boolean): void {
     let nodeStack = [this.editorElement]
@@ -285,8 +373,8 @@ class Lighditor {
     let node: ?Node
 
     while (node = nodeStack.pop()) {
-      if (this.isRowElement(node)) {
-        row = this.getRowIndex(node)
+      if (this._isRowElement(node)) {
+        row = this._getRowIndex(node)
         column = 0
       }
 
@@ -312,12 +400,12 @@ class Lighditor {
   /**
    * Get the text from the actual contents, including new lines
    */
-  _getInputText (): string {
+  _compileTextContent (): string {
     let contents: Array<string[]> = []
-    // let lastRowElement: Node = this.getRowElementByIndex(this.editorElement.childNodes.length - 1)
+    // let lastRowElement: Node = this._getRowElementByIndex(this.editorElement.childNodes.length - 1)
 
     this._dfsTraverseNode((node: Node, row: number, column: number) => {
-      if (this.isRowElement(node)) {
+      if (this._isRowElement(node)) {
         // Warn if current row has content already. By DFS we are guaranteed
         // the row element is ran againast with first
         if (typeof contents[row] !== 'undefined') {
@@ -361,7 +449,7 @@ class Lighditor {
     return contents.map((rowArray) => { return rowArray.join('') }).join('\n')
   }
 
-  getRowIndex (node: Node): number {
+  _getRowIndex (node: Node): number {
     let rowNode: ?RowInfo = this._getParentRowNode(node)
     if (!rowNode) {
       return -1
@@ -370,7 +458,7 @@ class Lighditor {
     }
   }
 
-  getRowElementByIndex (row: number): ?HTMLElement | ?Text {
+  _getRowElementByIndex (row: number): ?HTMLElement | ?Text {
     let node = this.editorElement.childNodes[row]
     if ((node instanceof HTMLElement) || (node instanceof Text)) {
       return node
@@ -379,15 +467,11 @@ class Lighditor {
     }
   }
 
-  isRowElement (node: Node): boolean {
+  _isRowElement (node: Node): boolean {
     return node.parentElement === this.editorElement
   }
 
   /***** Cursor and selection *****/
-  getSelection (): Selection {
-    return this.editorState.selection
-  }
-
   /**
    * Recursively goes up and get the row node from current node
    */
@@ -480,7 +564,7 @@ class Lighditor {
   /**
    * Update the selection state from user interaction
    */
-  updateSelection (): void {
+  _updateSelection (): void {
     if (featureGetSelection && featureCreateRange) {
       let currentSelection = window.getSelection()
 
@@ -527,7 +611,7 @@ class Lighditor {
 
   // Restore the saved selection and cursor position
   // REF: https://stackoverflow.com/questions/13949059/persisting-the-changes-of-range-objects-after-selection-in-html
-  restoreSelection (): void {
+  _restoreSelection (): void {
     if (featureGetSelection && featureCreateRange) {
       let selection = this.editorState.selection
 
@@ -547,8 +631,8 @@ class Lighditor {
         rangeEnd = selection.end
       }
 
-      let rangeStartRowElement = this.getRowElementByIndex(rangeStart.row),
-          rangeEndRowElement = this.getRowElementByIndex(rangeEnd.row),
+      let rangeStartRowElement = this._getRowElementByIndex(rangeStart.row),
+          rangeEndRowElement = this._getRowElementByIndex(rangeEnd.row),
           side1, side2
 
       if (!rangeStartRowElement || !rangeEndRowElement) {
@@ -610,13 +694,7 @@ class Lighditor {
     }
   }
 
-  getCursorPosition (): Position {
-    let cursorPosition: Position = { row: 0, column: 0 }
-
-
-
-    return cursorPosition
-  }
+  /***** Utils *****/
 
 }
 
@@ -716,7 +794,7 @@ window.Lighditor = Lighditor
 //     parsed = expressionParser contentText
 //     @renderContent parsed
 //     @inputMask.innerHTML = @renderedHtml
-//     @restoreSelection()
+//     @_restoreSelection()
 
 //   getSpaceHtml: (numOfSpace = 0) ->
 //     return '' if numOfSpace is 0
@@ -830,7 +908,7 @@ window.Lighditor = Lighditor
 //       start: cursorStartPosition
 //       end: cursorEndPosition
 
-//     @restoreSelection selection
+//     @_restoreSelection selection
 
 //   getHtmlNodeUnderCursor: () ->
 //     return sel.focusNode if sel = window.getSelection?()
@@ -909,7 +987,7 @@ window.Lighditor = Lighditor
 
 //   # Restore the saved selection and cursor position
 //   # REF: https://stackoverflow.com/questions/13949059/persisting-the-changes-of-range-objects-after-selection-in-html
-//   restoreSelection: (selection = @selection) =>
+//   _restoreSelection: (selection = @selection) =>
 //     if window.getSelection? and document.createRange?
 //       return unless selection
 

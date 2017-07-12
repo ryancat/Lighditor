@@ -115,10 +115,6 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
   start: Position,
   end: Position
 }*/
-/*:: type Range = {
-  start: Position,
-  end: Position
-}*/
 /*:: type LighditorConfig = {
   initTextContent: string
 }*/
@@ -189,56 +185,105 @@ var lighditorUtil = {
 };
 
 var Lighditor = function () {
-  function Lighditor(props /*: LighditorProps*/) {
+  function Lighditor(element /*: HTMLElement*/, config /*: LighditorConfig*/) {
+    var _this = this;
+
     _classCallCheck(this, Lighditor);
 
-    this.element = props.element;
-    this.editorConfig = props.config || {
-      initTextContent: ''
+    this.element = element;
+    this.editorConfig = config;
 
-      // this.resetRender()
-      // this.build()
-      // this.listen()
-      // @attachListeners()
-      //
+    // Error checks
+    if (typeof this.element === 'undefined') {
+      throw new Error('Missing element for editor');
+    }
 
-      // Decorate prototype
-      // this.render = lighditorUtil.debounce(this.render.bind(this))
-    };
+    // Build the editor DOM
+    this._build();
+
+    // Reset editor state
+    this._resetRender();
+
+    // Attach listeners
+    this._listen();
+
+    // Setup placeholder or init text
+    this.setTextContent(this.editorConfig.initTextContent);
+
+    // For debugging
+    Lighditor.debug(function () {
+      window.lighditor = _this;
+    });
+
+    // this.resetRender()
+    // this.build()
+    // this.listen()
+    // @attachListeners()
+    //
+
+    // Decorate prototype
+    // this.render = lighditorUtil.debounce(this.render.bind(this))
   }
 
+  // Create a instance of Lighditor class
+
+
   _createClass(Lighditor, [{
-    key: 'resetRender',
-    value: function resetRender() /*: void*/ {
-      this.setEditorState({
-        textContent: '',
-        cursorPosition: { row: 0, column: 0 },
-        selection: {
-          start: { row: 0, column: 0 },
-          end: { row: 0, column: 0 }
-        }
-      });
-    }
-  }, {
-    key: 'build',
-    value: function build(config /*: ?LighditorConfig*/) {
-      // Error checks
-      if (typeof this.element === 'undefined') {
-        throw new Error('Missing element for editor');
+    key: 'setTextContent',
+
+
+    /***** Setters *****/
+    value: function setTextContent(textContent /*: string*/) /*: void*/ {
+      var oldTextContent = this.editorState.textContent;
+
+      if (textContent === oldTextContent) {
+        return;
       }
 
+      this._setEditorState(_extends({}, this.editorState, {
+        textContent: textContent
+      }));
+
+      this.onTextContentChange(textContent, oldTextContent);
+    }
+  }, {
+    key: 'setSelection',
+    value: function setSelection(selection /*: Selection*/) /*: void*/ {
+      var oldSelection = this.editorState.selection;
+
+      this._setEditorState(_extends({}, this.editorState, {
+        selection: selection
+      }), true);
+
+      this.onSelectionChange(selection, oldSelection);
+    }
+
+    /***** Getters *****/
+
+  }, {
+    key: 'getSelection',
+    value: function getSelection() /*: Selection*/ {
+      return this.editorState.selection;
+    }
+  }, {
+    key: 'getTextContent',
+    value: function getTextContent() /*: string*/ {
+      return this.editorState.textContent;
+    }
+  }, {
+    key: 'getCursorPosition',
+    value: function getCursorPosition() /*: Position*/ {
+      return this.getSelection().end;
+    }
+
+    /***** Build and unbuild *****/
+
+  }, {
+    key: '_build',
+    value: function _build() /*: void*/ {
       var elementParent = this.element.parentElement;
       if (!elementParent) {
         throw new Error('Element set to html document is not supported');
-      }
-
-      // Update config
-      if (typeof config !== 'undefined') {
-        for (var key in config) {
-          if (config.hasOwnProperty(key)) {
-            this.editorConfig[key] = config[key];
-          }
-        }
       }
 
       var wrapperElement /*: HTMLDivElement*/ = document.createElement('div');
@@ -259,30 +304,34 @@ var Lighditor = function () {
       // Make editor element editable
       this.editorElement.setAttribute('contenteditable', 'true');
       wrapperElement.appendChild(this.editorElement);
-
-      // Reset editor state
-      this.resetRender();
-
-      // Attach listeners
-      this.listen();
-
-      // Setup placeholder or init text
-      this.setTextContent(this.editorConfig.initTextContent || '');
     }
   }, {
-    key: 'listen',
-    value: function listen() /*: void*/ {
-      this.editorElement.addEventListener('keydown', this.handleKeydown.bind(this));
-      this.editorElement.addEventListener('keyup', this.handleKeyup.bind(this));
+    key: '_destroy',
+    value: function _destroy() /*: boolean*/ {
+      this._resetRender();
+      var wrapperElement = this.editorElement.parentElement,
+          elementParent /*: Element*/ = void 0;
+
+      if (!(wrapperElement instanceof HTMLElement)) {
+        Lighditor.warn('The wrapper of editor is not an HTMLElement, which should not happen');
+      }
+
+      if (wrapperElement && wrapperElement.parentElement instanceof Element) {
+        elementParent = wrapperElement.parentElement;
+        elementParent.replaceChild(wrapperElement, this.element);
+      }
+
+      return delete this.editorElement;
     }
 
+    /***** render and state *****/
     /**
      * Render the editor element inner html based on current editor state
      */
 
   }, {
-    key: 'render',
-    value: function render() /*: void*/ {
+    key: '_render',
+    value: function _render() /*: void*/ {
       // Render the text content
       var textContent /*: string*/ = this.editorState.textContent;
       var textContentRows /*: string[]*/ = textContent.split('\n');
@@ -294,36 +343,71 @@ var Lighditor = function () {
 
       this.editorElement.innerHTML = html;
 
-      // Render the selection/cursor
-      this.restoreSelection();
+      // Attach the current selection/cursor
+      this._restoreSelection();
+    }
+  }, {
+    key: '_resetRender',
+    value: function _resetRender() /*: void*/ {
+      this._setEditorState({
+        textContent: '',
+        cursorPosition: { row: 0, column: 0 },
+        selection: {
+          start: { row: 0, column: 0 },
+          end: { row: 0, column: 0 }
+        }
+      });
+    }
+  }, {
+    key: '_setEditorState',
+    value: function _setEditorState(editorState /*: LighditorState*/) /*: void*/ {
+      var silence /*: boolean*/ = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
+
+      Lighditor.log((silence ? 'silently ' : '') + 'set editor state: ', editorState);
+
+      this.editorState = _extends({}, editorState);
+
+      // When we set editor state, we need to re-render the content
+      // based on given parser
+      // TODO: Considering use virtual dom to render editor
+      if (!silence) {
+        this._render();
+      }
     }
 
-    /***** Event handlers *****/
+    /***** Events *****/
 
   }, {
-    key: 'handleKeydown',
-    value: function handleKeydown(evt /*: KeyboardEvent*/) {}
+    key: '_listen',
+    value: function _listen() /*: void*/ {
+      this.editorElement.addEventListener('keydown', this._handleKeydown.bind(this));
+      this.editorElement.addEventListener('keyup', this._handleKeyup.bind(this));
+      this.editorElement.addEventListener('mouseup', this._handleMouseup.bind(this));
+    }
   }, {
-    key: 'handleKeyup',
-    value: function handleKeyup(evt /*: KeyboardEvent*/) {
-      var textContent /*: string*/ = this._getInputText();
+    key: '_handleKeydown',
+    value: function _handleKeydown(evt /*: KeyboardEvent*/) {}
+  }, {
+    key: '_handleKeyup',
+    value: function _handleKeyup(evt /*: KeyboardEvent*/) {
+      var textContent /*: string*/ = this._compileTextContent();
 
       // TODO: update selection if arrow key is up
-      this.updateSelection();
+      this._updateSelection();
 
       // TODO: We may not need to update the whole editor text content
       // but only the section that is actually changed
       // this.saveSelection()
       this.setTextContent(textContent);
-      // this.restoreSelection()
+      // this._restoreSelection()
     }
   }, {
-    key: 'handleMouseup',
-    value: function handleMouseup(evt /*: MouseEvent*/) {
-      this.updateSelection();
+    key: '_handleMouseup',
+    value: function _handleMouseup(evt /*: MouseEvent*/) {
+      this._updateSelection();
     }
 
-    /***** Lifecycle events *****/
+    /***** Lifecycle *****/
     /**
      * Called after text content is changed
      */
@@ -340,47 +424,6 @@ var Lighditor = function () {
     key: 'onSelectionChange',
     value: function onSelectionChange(newSelection /*: Selection*/, oldSelection /*: Selection*/) /*: void*/ {}
 
-    /***** Setters *****/
-
-  }, {
-    key: 'setEditorState',
-    value: function setEditorState(editorState /*: LighditorState*/) /*: void*/ {
-      var _this = this;
-
-      console.log('calling setEditorState: ', editorState);
-
-      this.editorState = _extends({}, editorState);
-
-      // When we set editor state, we need to re-render the content
-      // based on given parser
-      // TODO: Considering use virtual dom to render editor
-      setTimeout(function () {
-        _this.render();
-      });
-    }
-  }, {
-    key: 'setTextContent',
-    value: function setTextContent(textContent /*: string*/) /*: void*/ {
-      var oldTextContent = this.editorState.textContent;
-
-      this.setEditorState(_extends({}, this.editorState, {
-        textContent: textContent
-      }));
-
-      this.onTextContentChange(textContent, oldTextContent);
-    }
-  }, {
-    key: 'setSelection',
-    value: function setSelection(selection /*: Selection*/) /*: void*/ {
-      var oldSelection = this.editorState.selection;
-
-      this.setEditorState(_extends({}, this.editorState, {
-        selection: selection
-      }));
-
-      this.onSelectionChange(selection, oldSelection);
-    }
-
     /***** Text content *****/
 
   }, {
@@ -392,8 +435,8 @@ var Lighditor = function () {
       var node /*: ?Node*/ = void 0;
 
       while (node = nodeStack.pop()) {
-        if (this.isRowElement(node)) {
-          row = this.getRowIndex(node);
+        if (this._isRowElement(node)) {
+          row = this._getRowIndex(node);
           column = 0;
         }
 
@@ -421,15 +464,15 @@ var Lighditor = function () {
      */
 
   }, {
-    key: '_getInputText',
-    value: function _getInputText() /*: string*/ {
+    key: '_compileTextContent',
+    value: function _compileTextContent() /*: string*/ {
       var _this2 = this;
 
       var contents /*: Array<string[]>*/ = [];
-      // let lastRowElement: Node = this.getRowElementByIndex(this.editorElement.childNodes.length - 1)
+      // let lastRowElement: Node = this._getRowElementByIndex(this.editorElement.childNodes.length - 1)
 
       this._dfsTraverseNode(function (node /*: Node*/, row /*: number*/, column /*: number*/) {
-        if (_this2.isRowElement(node)) {
+        if (_this2._isRowElement(node)) {
           // Warn if current row has content already. By DFS we are guaranteed
           // the row element is ran againast with first
           if (typeof contents[row] !== 'undefined') {
@@ -475,8 +518,8 @@ var Lighditor = function () {
       }).join('\n');
     }
   }, {
-    key: 'getRowIndex',
-    value: function getRowIndex(node /*: Node*/) /*: number*/ {
+    key: '_getRowIndex',
+    value: function _getRowIndex(node /*: Node*/) /*: number*/ {
       var rowNode /*: ?RowInfo*/ = this._getParentRowNode(node);
       if (!rowNode) {
         return -1;
@@ -485,8 +528,8 @@ var Lighditor = function () {
       }
     }
   }, {
-    key: 'getRowElementByIndex',
-    value: function getRowElementByIndex(row /*: number*/) /*: ?HTMLElement | ?Text*/ {
+    key: '_getRowElementByIndex',
+    value: function _getRowElementByIndex(row /*: number*/) /*: ?HTMLElement | ?Text*/ {
       var node = this.editorElement.childNodes[row];
       if (node instanceof HTMLElement || node instanceof Text) {
         return node;
@@ -495,19 +538,12 @@ var Lighditor = function () {
       }
     }
   }, {
-    key: 'isRowElement',
-    value: function isRowElement(node /*: Node*/) /*: boolean*/ {
+    key: '_isRowElement',
+    value: function _isRowElement(node /*: Node*/) /*: boolean*/ {
       return node.parentElement === this.editorElement;
     }
 
     /***** Cursor and selection *****/
-
-  }, {
-    key: 'getSelection',
-    value: function getSelection() /*: Selection*/ {
-      return this.editorState.selection;
-    }
-
     /**
      * Recursively goes up and get the row node from current node
      */
@@ -614,8 +650,8 @@ var Lighditor = function () {
      */
 
   }, {
-    key: 'updateSelection',
-    value: function updateSelection() /*: void*/ {
+    key: '_updateSelection',
+    value: function _updateSelection() /*: void*/ {
       if (featureGetSelection && featureCreateRange) {
         var currentSelection = window.getSelection();
 
@@ -663,8 +699,8 @@ var Lighditor = function () {
     // REF: https://stackoverflow.com/questions/13949059/persisting-the-changes-of-range-objects-after-selection-in-html
 
   }, {
-    key: 'restoreSelection',
-    value: function restoreSelection() /*: void*/ {
+    key: '_restoreSelection',
+    value: function _restoreSelection() /*: void*/ {
       if (featureGetSelection && featureCreateRange) {
         var getRangeSide = function getRangeSide(node /*: Node*/, nodeStartColumn /*: number*/, sideColumn /*: number*/) {
           var side = null;
@@ -706,8 +742,8 @@ var Lighditor = function () {
           rangeEnd = _selection.end;
         }
 
-        var rangeStartRowElement = this.getRowElementByIndex(rangeStart.row),
-            rangeEndRowElement = this.getRowElementByIndex(rangeEnd.row),
+        var rangeStartRowElement = this._getRowElementByIndex(rangeStart.row),
+            rangeEndRowElement = this._getRowElementByIndex(rangeEnd.row),
             side1 = void 0,
             side2 = void 0;
 
@@ -747,12 +783,76 @@ var Lighditor = function () {
         sel.addRange(range);
       }
     }
-  }, {
-    key: 'getCursorPosition',
-    value: function getCursorPosition() /*: Position*/ {
-      var cursorPosition /*: Position*/ = { row: 0, column: 0 };
 
-      return cursorPosition;
+    /***** Utils *****/
+
+  }], [{
+    key: 'create',
+    value: function create(element /*: HTMLElement*/, config /*: ?LighditorConfig*/) {
+      var actualConfig /*: LighditorConfig*/ = {
+        initTextContent: ''
+
+        // make sure defaults in config
+      };if (typeof config !== 'undefined') {
+        for (var key in config) {
+          if (config.hasOwnProperty(key)) {
+            actualConfig[key] = config[key];
+          }
+        }
+      }
+
+      return new Lighditor(element, actualConfig);
+    }
+  }, {
+    key: 'destroy',
+    value: function destroy(editor /*: Lighditor*/) /*: boolean*/ {
+      if (editor instanceof Lighditor) {
+        return editor._destroy();
+      } else {
+        Lighditor.warn('Try desgroy non-Lighditor: ', editor);
+        return true;
+      }
+    }
+  }, {
+    key: 'enableLog',
+    value: function enableLog() {
+      localStorage.setItem('lighditor.enableLog', 'true');
+    }
+  }, {
+    key: 'disableLog',
+    value: function disableLog() {
+      localStorage.setItem('lighditor.enableLog', 'false');
+    }
+  }, {
+    key: 'log',
+    value: function log() {
+      if (localStorage.getItem('lighditor.enableLog') === 'true') {
+        console.log.apply(null, arguments);
+      }
+    }
+  }, {
+    key: 'warn',
+    value: function warn() {
+      if (localStorage.getItem('lighditor.enableLog') === 'true') {
+        console.warn.apply(null, arguments);
+      }
+    }
+  }, {
+    key: 'enableDebug',
+    value: function enableDebug() {
+      localStorage.setItem('lighditor.enableDebug', 'true');
+    }
+  }, {
+    key: 'disableDebug',
+    value: function disableDebug() {
+      localStorage.setItem('lighditor.enableDebug', 'false');
+    }
+  }, {
+    key: 'debug',
+    value: function debug(callback /*: () => mixed*/) {
+      if (localStorage.getItem('lighditor.enableLog') === 'true') {
+        callback();
+      }
     }
   }]);
 
@@ -855,7 +955,7 @@ window.Lighditor = Lighditor;
 //     parsed = expressionParser contentText
 //     @renderContent parsed
 //     @inputMask.innerHTML = @renderedHtml
-//     @restoreSelection()
+//     @_restoreSelection()
 
 //   getSpaceHtml: (numOfSpace = 0) ->
 //     return '' if numOfSpace is 0
@@ -969,7 +1069,7 @@ window.Lighditor = Lighditor;
 //       start: cursorStartPosition
 //       end: cursorEndPosition
 
-//     @restoreSelection selection
+//     @_restoreSelection selection
 
 //   getHtmlNodeUnderCursor: () ->
 //     return sel.focusNode if sel = window.getSelection?()
@@ -1048,7 +1148,7 @@ window.Lighditor = Lighditor;
 
 //   # Restore the saved selection and cursor position
 //   # REF: https://stackoverflow.com/questions/13949059/persisting-the-changes-of-range-objects-after-selection-in-html
-//   restoreSelection: (selection = @selection) =>
+//   _restoreSelection: (selection = @selection) =>
 //     if window.getSelection? and document.createRange?
 //       return unless selection
 
@@ -1205,7 +1305,7 @@ exports = module.exports = __webpack_require__(/*! ../node_modules/css-loader/li
 
 
 // module
-exports.push([module.i, ".lighditorElement {\n  height: 200px;\n  outline: none;\n  border: 1px solid black; }\n  .lighditorElement .lighditorRow {\n    font-family: courier;\n    height: 14px;\n    line-height: 14px; }\n", ""]);
+exports.push([module.i, ".lighditorElement {\n  height: 200px;\n  outline: none;\n  border: 1px solid black;\n  overflow: auto; }\n  .lighditorElement .lighditorRow {\n    font-family: courier;\n    height: 14px;\n    line-height: 14px; }\n", ""]);
 
 // exports
 
