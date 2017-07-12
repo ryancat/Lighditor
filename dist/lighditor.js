@@ -72,7 +72,7 @@
 /*! all exports used */
 /***/ (function(module, exports, __webpack_require__) {
 
-module.exports = __webpack_require__(/*! /Users/xin.chen/code/dev/Lighditor/src/lighditor.js */1);
+module.exports = __webpack_require__(/*! /Users/ryan/dev/lighditor/src/lighditor.js */1);
 
 
 /***/ }),
@@ -110,9 +110,12 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
 /*:: type Position = {
   row: number,
   column: number
-  // charIndex: number
 }*/
 /*:: type Selection = {
+  start: Position,
+  end: Position
+}*/
+/*:: type Range = {
   start: Position,
   end: Position
 }*/
@@ -154,6 +157,37 @@ var positionTypeEnum = {
 var featureGetSelection = !!window.getSelection;
 var featureCreateRange = !!document.createRange;
 
+var lighditorUtil = {
+
+  throttle: function throttle(callback /*: () => mixed*/) {
+    var interval /*: number*/ = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 0;
+
+    var lastCalledTimestamp /*: ?number*/ = void 0,
+        timeoutId = void 0;
+
+    function refreshTimeout() {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+
+      timeoutId = setTimeout(function () {
+        lastCalledTimestamp = null;
+      }, interval);
+    }
+
+    function throttled() {
+      if (!lastCalledTimestamp) {
+        lastCalledTimestamp = Date.now();
+        refreshTimeout();
+        callback();
+      }
+    }
+
+    return throttled;
+  }
+
+};
+
 var Lighditor = function () {
   function Lighditor(props /*: LighditorProps*/) {
     _classCallCheck(this, Lighditor);
@@ -168,6 +202,8 @@ var Lighditor = function () {
       // @attachListeners()
       //
 
+      // Decorate prototype
+      // this.render = lighditorUtil.debounce(this.render.bind(this))
     };
   }
 
@@ -317,6 +353,7 @@ var Lighditor = function () {
 
       // When we set editor state, we need to re-render the content
       // based on given parser
+      // TODO: Considering use virtual dom to render editor
       setTimeout(function () {
         _this.render();
       });
@@ -359,15 +396,6 @@ var Lighditor = function () {
           row = this.getRowIndex(node);
           column = 0;
         }
-
-        // if (node instanceof Text) {
-        //   if (callback(node, row, column)) {
-        //     column += node.length
-        //     break;
-        //   }
-        // } else {
-
-        // }
 
         if (callback(node, row, column)) {
           break;
@@ -490,18 +518,6 @@ var Lighditor = function () {
       var runningNode = node;
 
       while (runningNode && runningNode !== this.editorElement) {
-        // if ((runningNode instanceof HTMLElement) && runningNode.dataset['lighditorType'] === 'row') {
-        //   // Found the row wrapper
-        //   let rowCount = 0
-        //   let n = runningNode
-        //   for (; (n = n.previousSibling); rowCount++) {}
-
-        //   return {
-        //     element: runningNode,
-        //     row: rowCount
-        //   }
-        // }
-
         if ((runningNode instanceof HTMLElement || runningNode instanceof Text) && runningNode.parentElement === this.editorElement) {
           var rowCount = 0;
           var n = runningNode;
@@ -552,14 +568,9 @@ var Lighditor = function () {
         rangeBeforeNodeInRow.selectNodeContents(rowInfo.element);
         rangeBeforeNodeInRow.setEnd(node, 0);
 
-        // let rangeBeforeNodeInEditor = document.createRange()
-        // rangeBeforeNodeInEditor.selectNodeContents(this.editorElement)
-        // rangeBeforeNodeInEditor.setEnd(node, 0)
-
         return {
           row: rowInfo.row,
           column: rangeBeforeNodeInRow.toString().length
-          // charIndex: rangeBeforeNodeInEditor.toString().length
         };
       } else {
         // TODO: add support for old IE
@@ -588,6 +599,17 @@ var Lighditor = function () {
     }
 
     /**
+     * Return true if selection start is after end, as range always is from
+     * start to end
+     */
+
+  }, {
+    key: '_isRangeReversed',
+    value: function _isRangeReversed(selection /*: Selection*/) /*: boolean*/ {
+      return selection.start.row > selection.end.row || selection.start.column > selection.end.column;
+    }
+
+    /**
      * Update the selection state from user interaction
      */
 
@@ -597,62 +619,45 @@ var Lighditor = function () {
       if (featureGetSelection && featureCreateRange) {
         var currentSelection = window.getSelection();
 
-        if (!currentSelection.focusNode) {
+        if (!currentSelection.focusNode || !currentSelection.anchorNode) {
           return;
         }
 
-        var range = currentSelection.getRangeAt(0);
-        var selectionStartPosition /*: ?Position*/ = this._getSelectionStartNodePosition();
-        var selectionEndPosition /*: ?Position*/ = this._getSelectionEndNodePosition();
+        var selectionStartPosition /*: ?Position*/ = this._getSelectionStartNodePosition(),
+            selectionEndPosition /*: ?Position*/ = this._getSelectionEndNodePosition();
 
         if (selectionStartPosition && selectionEndPosition) {
+
+          var rangeStart /*: Position*/ = void 0,
+              rangeEnd /*: Position*/ = void 0,
+              range = currentSelection.getRangeAt(0);
+
+          if (this._isRangeReversed({
+            start: selectionStartPosition,
+            end: selectionEndPosition
+          })) {
+            rangeStart = range.endOffset;
+            rangeEnd = range.startOffset;
+          } else {
+            rangeStart = range.startOffset;
+            rangeEnd = range.endOffset;
+          }
+
           this.setSelection({
             start: {
               row: selectionStartPosition.row,
-              column: selectionStartPosition.column + range.startOffset
+              column: selectionStartPosition.column + rangeStart
             },
             end: {
               row: selectionEndPosition.row,
-              column: selectionEndPosition.column + range.endOffset
+              column: selectionEndPosition.column + rangeEnd
             }
           });
         }
-      } else {}
-      // TODO: add support for old IE
-
-
-      // if (sel = window.getSelection?()) and document.createRange?
-      //   return @selection = null unless sel.focusNode
-
-      //   range = sel.getRangeAt(0)
-      //   selectionStartPos = @_getNodeStartPos()
-
-      //   if selectionStartPos >= 0
-      //     start = selectionStartPos + range.startOffset
-      //     return {
-      //       start: start
-      //       end: start + range.toString().length
-      //     }
-      //   else
-      //     return null
-
-      //   # preSelectionRange = range.cloneRange()
-      //   # preSelectionRange.selectNodeContents @inputMask
-      //   # preSelectionRange.setEnd range.startContainer, range.startOffset
-      //   # start = preSelectionRange.toString().length
-
-      //   # return {
-      //   #   start: start
-      //   #   end: start + range.toString().length
-      //   # }
-
-      // else
-      //   console.warn 'Editor selection persist feature does not support'
-      //   return null
+      } else {
+        // TODO: add support for old IE
+      }
     }
-  }, {
-    key: 'saveSelection',
-    value: function saveSelection() /*: void*/ {}
 
     // Restore the saved selection and cursor position
     // REF: https://stackoverflow.com/questions/13949059/persisting-the-changes-of-range-objects-after-selection-in-html
@@ -661,53 +666,78 @@ var Lighditor = function () {
     key: 'restoreSelection',
     value: function restoreSelection() /*: void*/ {
       if (featureGetSelection && featureCreateRange) {
+        var getRangeSide = function getRangeSide(node /*: Node*/, nodeStartColumn /*: number*/, sideColumn /*: number*/) {
+          var side = null;
+          var nodeCharLength /*: number*/ = 0;
+          // if (node instanceof Text) {
+          if (node instanceof Text) {
+            nodeCharLength = node.length;
+          }
+
+          var nodeEndColumn = nodeStartColumn + nodeCharLength;
+
+          if (sideColumn >= nodeStartColumn && sideColumn <= nodeEndColumn) {
+            // Found the text node where side column inside node
+            side = {
+              node: node,
+              offset: sideColumn - nodeStartColumn
+            };
+          }
+          // }
+
+          return side;
+        };
+
         var _selection = this.editorState.selection;
 
         if (!_selection) {
           return;
         }
 
-        // Set the range from start
-        var range = document.createRange();
-        // let startRowElement = this.editorElement.querySelector('.' + EditorClass.EDITOR_ROW + '[data-lighditor-row="' + selection.start.row + '"]')
-        // let endRowElement = this.editorElement.querySelector('.' + EditorClass.EDITOR_ROW + '[data-lighditor-row="' + selection.end.row + '"]')
+        var range = document.createRange(),
+            rangeStart /*: Position*/ = void 0,
+            rangeEnd /*: Position*/ = void 0;
 
-        var startRowElement = this.getRowElementByIndex(_selection.start.row);
-        var endRowElement = this.getRowElementByIndex(_selection.end.row);
+        if (this._isRangeReversed(_selection)) {
+          rangeStart = _selection.end;
+          rangeEnd = _selection.start;
+        } else {
+          rangeStart = _selection.start;
+          rangeEnd = _selection.end;
+        }
 
-        if (!startRowElement || !endRowElement) {
+        var rangeStartRowElement = this.getRowElementByIndex(rangeStart.row),
+            rangeEndRowElement = this.getRowElementByIndex(rangeEnd.row),
+            side1 = void 0,
+            side2 = void 0;
+
+        if (!rangeStartRowElement || !rangeEndRowElement) {
           return;
         }
 
-        range.setStart(startRowElement, 0);
+        // Set the range to the current cursor position to start with
+        range.setStart(rangeStartRowElement, 0);
         range.collapse(true);
 
-        var nodeStack = [this.editorElement];
-        var foundStart /*: boolean*/ = false;
-        var stop /*: boolean*/ = false;
-        var charIndex /*: number*/ = 0;
-
         this._dfsTraverseNode(function (node /*: Node*/, row /*: number*/, column /*: number*/) {
-          if (node instanceof Text) {
-            if (row === _selection.start.row) {
-              // let nextCharIndex = charIndex + node.length
+          if (node.childNodes.length === 0) {
 
-              var endTextNodeColumn = column + node.length;
-              var startColumn = _selection.start.column;
-              var endColumn = _selection.end.column;
-
-              if (!foundStart && startColumn >= column && startColumn <= endTextNodeColumn) {
-                // Found the text node where selection starts
-                range.setStart(node, startColumn - column);
-                foundStart = true;
+            if (!side1 && row === rangeStart.row) {
+              side1 = getRangeSide(node, column, rangeStart.column);
+              if (side1) {
+                range.setStart(side1.node, side1.offset);
               }
+            }
 
-              if (foundStart && endColumn >= column && endColumn <= endTextNodeColumn) {
-                // Found the text node where selection ends
-                range.setEnd(node, endColumn - column);
+            if (!side2 && row === rangeEnd.row) {
+              side2 = getRangeSide(node, column, rangeEnd.column);
+              if (side2) {
+                range.setEnd(side2.node, side2.offset);
               }
+            }
 
-              // charIndex = nextCharIndex
+            if (side1 && side2) {
+              return true;
             }
           }
         });
@@ -716,50 +746,11 @@ var Lighditor = function () {
         sel.removeAllRanges();
         sel.addRange(range);
       }
-
-      // if window.getSelection? and document.createRange?
-      //   return unless selection
-
-      //   charIndex = 0
-      //   range = document.createRange()
-      //   range.setStart @inputMask, 0
-      //   range.collapse true
-
-      //   nodeStack = [@inputMask]
-      //   foundStart = false
-      //   stop = false
-
-      //   while (not stop and (node = nodeStack.pop()))
-      //     if node.nodeType is window.Node.TEXT_NODE
-      //       nextCharIndex = charIndex + node.length
-      //       if not foundStart and selection.start >= charIndex and selection.start <= nextCharIndex
-      //         range.setStart node, selection.start - charIndex
-      //         foundStart = true
-
-      //       if foundStart && selection.end >= charIndex && selection.end <= nextCharIndex
-      //         range.setEnd(node, selection.end - charIndex)
-      //         stop = true
-
-      //       charIndex = nextCharIndex
-
-      //     else
-      //       children = node.childNodes
-      //       nodeIndex = children.length
-      //       while nodeIndex--
-      //         nodeStack.push children[nodeIndex]
-
-      //   sel = window.getSelection()
-      //   sel.removeAllRanges()
-      //   sel.addRange range
-      // else
-      //   console.warn 'Editor selection persist feature does not support'
-
-      // @selection = null
     }
   }, {
     key: 'getCursorPosition',
     value: function getCursorPosition() /*: Position*/ {
-      var cursorPosition /*: Position*/ = { row: 0, column: 0, charIndex: 0 };
+      var cursorPosition /*: Position*/ = { row: 0, column: 0 };
 
       return cursorPosition;
     }
