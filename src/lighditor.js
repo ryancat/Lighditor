@@ -367,16 +367,26 @@ class Lighditor {
 
   /***** Text content *****/
   _dfsTraverseNode (callback: (node: Node, row: number, column: number) => ?boolean): void {
-    let nodeStack = [this.editorElement]
-    let row: number = 0
-    let column: number = 0
-    let node: ?Node
+    let nodeStack = [this.editorElement],
+        row: number = 0,
+        column: number = 0,
+        node: ?Node,
+        // When there are <br> element in row, we need to add extra row
+        extraRowCount: number = 0
 
     while (node = nodeStack.pop()) {
       if (this._isRowElement(node)) {
-        row = this._getRowIndex(node)
+        row = this._getRowIndex(node) + extraRowCount
         column = 0
       }
+
+      /** Fix for firefox */
+      if (this._isBrElement(node)) {
+        extraRowCount++
+        row++
+        column = 0
+      }
+      /** Fix for firefox end */
 
       if (callback(node, row, column)) {
         break
@@ -386,7 +396,7 @@ class Lighditor {
         column += node.length
       }
 
-      if (node.childNodes) {
+      if (!this._isRowEmpty(node) && node.childNodes && node.childNodes.length) {
         let childNodes = node.childNodes
         let childIndex: number = childNodes.length
 
@@ -399,17 +409,22 @@ class Lighditor {
 
   /**
    * Get the text from the actual contents, including new lines
+   *
+   * When hitting new line (enter key):
+   * 1. chrome/safari will clone the current row and move the rest of text to the new row.
+   * 2. firefox will keep the two piece of string in the same row and add a 'br' element
    */
   _compileTextContent (): string {
     let contents: Array<string[]> = []
-    // let lastRowElement: Node = this._getRowElementByIndex(this.editorElement.childNodes.length - 1)
 
     this._dfsTraverseNode((node: Node, row: number, column: number) => {
-      if (this._isRowElement(node)) {
+      console.log('Traverse node', node, row, column)
+
+      if (this._isRowElement(node) || this._isBrElement(node)) {
         // Warn if current row has content already. By DFS we are guaranteed
         // the row element is ran againast with first
         if (typeof contents[row] !== 'undefined') {
-          console.warn('Row ' + row + ' has rendered')
+          Lighditor.warn('Row ' + row + ' has rendered')
         }
 
         // Make sure each row has a new line
@@ -418,6 +433,8 @@ class Lighditor {
 
       if (node instanceof Text) {
         let rowContent = contents[row]
+
+        /** Error checks **/
 
         // Warn if we have empty positions
         if (column > 0 && typeof rowContent[column - 1] === 'undefined') {
@@ -438,6 +455,8 @@ class Lighditor {
           return true
         }
 
+        /** Error checks end **/
+
         // Copy nodeText to row content
         let nodeText = node.textContent
         for (let i = column; i < nodeText.length; i++) {
@@ -446,32 +465,12 @@ class Lighditor {
       }
     })
 
+    console.log('content: ', contents.map((rowArray) => { return rowArray.join('\n') }))
+    console.log('------------------ Traverse node finished ------------------')
+
     return contents.map((rowArray) => { return rowArray.join('') }).join('\n')
   }
 
-  _getRowIndex (node: Node): number {
-    let rowNode: ?RowInfo = this._getParentRowNode(node)
-    if (!rowNode) {
-      return -1
-    } else {
-      return rowNode.row
-    }
-  }
-
-  _getRowElementByIndex (row: number): ?HTMLElement | ?Text {
-    let node = this.editorElement.childNodes[row]
-    if ((node instanceof HTMLElement) || (node instanceof Text)) {
-      return node
-    } else {
-      return null
-    }
-  }
-
-  _isRowElement (node: Node): boolean {
-    return node.parentElement === this.editorElement
-  }
-
-  /***** Cursor and selection *****/
   /**
    * Recursively goes up and get the row node from current node
    */
@@ -496,6 +495,50 @@ class Lighditor {
     return null
   }
 
+  _getRowIndex (node: Node): number {
+    let rowNode: ?RowInfo = this._getParentRowNode(node)
+    if (!rowNode) {
+      return -1
+    } else {
+      return rowNode.row
+    }
+  }
+
+  _getRowElementByIndex (row: number): ?HTMLElement | ?Text {
+    let node = this.editorElement.childNodes[row]
+    if ((node instanceof HTMLElement) || (node instanceof Text)) {
+      return node
+    } else {
+      return null
+    }
+  }
+
+  _isRowElement (node: Node): boolean {
+    return node.parentElement === this.editorElement
+  }
+
+  _isBrElement (node: Node): boolean {
+    // TODO: FLOW cannot reslove HTMLBRElement!
+    // return node instanceof HTMLBRElement
+    return node.nodeName === 'BR'
+  }
+
+  _isRowEmpty (node: Node): boolean{
+    let rowInfo: ?RowInfo = this._getParentRowNode(node)
+    if (rowInfo) {
+      // let childNodes = rowInfo.element.childNodes
+
+      // childNodes
+
+      // return childNodes && childNodes.length === 1 && this._isBrElement(childNodes[0])
+      return rowInfo.element.textContent === ''
+    }
+    else {
+      return false
+    }
+  }
+
+  /***** Cursor and selection *****/
   _getSelectionNodePosition (positionType: PositionTypeEnum): ?Position {
     if (featureGetSelection && featureCreateRange) {
       let currentSelection = window.getSelection()

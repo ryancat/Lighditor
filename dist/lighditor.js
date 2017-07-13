@@ -429,16 +429,27 @@ var Lighditor = function () {
   }, {
     key: '_dfsTraverseNode',
     value: function _dfsTraverseNode(callback /*: (node: Node, row: number, column: number) => ?boolean*/) /*: void*/ {
-      var nodeStack = [this.editorElement];
-      var row /*: number*/ = 0;
-      var column /*: number*/ = 0;
-      var node /*: ?Node*/ = void 0;
+      var nodeStack = [this.editorElement],
+          row /*: number*/ = 0,
+          column /*: number*/ = 0,
+          node /*: ?Node*/ = void 0,
+
+      // When there are <br> element in row, we need to add extra row
+      extraRowCount /*: number*/ = 0;
 
       while (node = nodeStack.pop()) {
         if (this._isRowElement(node)) {
-          row = this._getRowIndex(node);
+          row = this._getRowIndex(node) + extraRowCount;
           column = 0;
         }
+
+        /** Fix for firefox */
+        if (this._isBrElement(node)) {
+          extraRowCount++;
+          row++;
+          column = 0;
+        }
+        /** Fix for firefox end */
 
         if (callback(node, row, column)) {
           break;
@@ -448,7 +459,7 @@ var Lighditor = function () {
           column += node.length;
         }
 
-        if (node.childNodes) {
+        if (!this._isRowEmpty(node) && node.childNodes && node.childNodes.length) {
           var childNodes = node.childNodes;
           var childIndex /*: number*/ = childNodes.length;
 
@@ -461,6 +472,10 @@ var Lighditor = function () {
 
     /**
      * Get the text from the actual contents, including new lines
+     *
+     * When hitting new line (enter key):
+     * 1. chrome/safari will clone the current row and move the rest of text to the new row.
+     * 2. firefox will keep the two piece of string in the same row and add a 'br' element
      */
 
   }, {
@@ -469,14 +484,15 @@ var Lighditor = function () {
       var _this2 = this;
 
       var contents /*: Array<string[]>*/ = [];
-      // let lastRowElement: Node = this._getRowElementByIndex(this.editorElement.childNodes.length - 1)
 
       this._dfsTraverseNode(function (node /*: Node*/, row /*: number*/, column /*: number*/) {
-        if (_this2._isRowElement(node)) {
+        console.log('Traverse node', node, row, column);
+
+        if (_this2._isRowElement(node) || _this2._isBrElement(node)) {
           // Warn if current row has content already. By DFS we are guaranteed
           // the row element is ran againast with first
           if (typeof contents[row] !== 'undefined') {
-            console.warn('Row ' + row + ' has rendered');
+            Lighditor.warn('Row ' + row + ' has rendered');
           }
 
           // Make sure each row has a new line
@@ -485,6 +501,8 @@ var Lighditor = function () {
 
         if (node instanceof Text) {
           var rowContent = contents[row];
+
+          /** Error checks **/
 
           // Warn if we have empty positions
           if (column > 0 && typeof rowContent[column - 1] === 'undefined') {
@@ -505,6 +523,8 @@ var Lighditor = function () {
             return true;
           }
 
+          /** Error checks end **/
+
           // Copy nodeText to row content
           var nodeText = node.textContent;
           for (var i = column; i < nodeText.length; i++) {
@@ -513,37 +533,16 @@ var Lighditor = function () {
         }
       });
 
+      console.log('content: ', contents.map(function (rowArray) {
+        return rowArray.join('\n');
+      }));
+      console.log('------------------ Traverse node finished ------------------');
+
       return contents.map(function (rowArray) {
         return rowArray.join('');
       }).join('\n');
     }
-  }, {
-    key: '_getRowIndex',
-    value: function _getRowIndex(node /*: Node*/) /*: number*/ {
-      var rowNode /*: ?RowInfo*/ = this._getParentRowNode(node);
-      if (!rowNode) {
-        return -1;
-      } else {
-        return rowNode.row;
-      }
-    }
-  }, {
-    key: '_getRowElementByIndex',
-    value: function _getRowElementByIndex(row /*: number*/) /*: ?HTMLElement | ?Text*/ {
-      var node = this.editorElement.childNodes[row];
-      if (node instanceof HTMLElement || node instanceof Text) {
-        return node;
-      } else {
-        return null;
-      }
-    }
-  }, {
-    key: '_isRowElement',
-    value: function _isRowElement(node /*: Node*/) /*: boolean*/ {
-      return node.parentElement === this.editorElement;
-    }
 
-    /***** Cursor and selection *****/
     /**
      * Recursively goes up and get the row node from current node
      */
@@ -570,6 +569,56 @@ var Lighditor = function () {
 
       return null;
     }
+  }, {
+    key: '_getRowIndex',
+    value: function _getRowIndex(node /*: Node*/) /*: number*/ {
+      var rowNode /*: ?RowInfo*/ = this._getParentRowNode(node);
+      if (!rowNode) {
+        return -1;
+      } else {
+        return rowNode.row;
+      }
+    }
+  }, {
+    key: '_getRowElementByIndex',
+    value: function _getRowElementByIndex(row /*: number*/) /*: ?HTMLElement | ?Text*/ {
+      var node = this.editorElement.childNodes[row];
+      if (node instanceof HTMLElement || node instanceof Text) {
+        return node;
+      } else {
+        return null;
+      }
+    }
+  }, {
+    key: '_isRowElement',
+    value: function _isRowElement(node /*: Node*/) /*: boolean*/ {
+      return node.parentElement === this.editorElement;
+    }
+  }, {
+    key: '_isBrElement',
+    value: function _isBrElement(node /*: Node*/) /*: boolean*/ {
+      // TODO: FLOW cannot reslove HTMLBRElement!
+      // return node instanceof HTMLBRElement
+      return node.nodeName === 'BR';
+    }
+  }, {
+    key: '_isRowEmpty',
+    value: function _isRowEmpty(node /*: Node*/) /*: boolean*/ {
+      var rowInfo /*: ?RowInfo*/ = this._getParentRowNode(node);
+      if (rowInfo) {
+        // let childNodes = rowInfo.element.childNodes
+
+        // childNodes
+
+        // return childNodes && childNodes.length === 1 && this._isBrElement(childNodes[0])
+        return rowInfo.element.textContent === '';
+      } else {
+        return false;
+      }
+    }
+
+    /***** Cursor and selection *****/
+
   }, {
     key: '_getSelectionNodePosition',
     value: function _getSelectionNodePosition(positionType /*: PositionTypeEnum*/) /*: ?Position*/ {
