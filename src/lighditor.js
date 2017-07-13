@@ -39,7 +39,7 @@ type LighditorState = {
 }
 
 type RowInfo = {
-  element: HTMLElement | Text,
+  container: Node,
   row: number
 }
 
@@ -47,7 +47,8 @@ const EditorClass = {
   CONTAINER: 'lighditorContainer',
   ELEMENT: 'lighditorRawElement',
   EDITOR_ELEMENT: 'lighditorElement',
-  EDITOR_ROW: 'lighditorRow'
+  EDITOR_ROW: 'lighditorRow',
+  EDITOR_NEWLINE: 'lighditorNewline'
 }
 
 const positionTypeEnum = {
@@ -169,15 +170,15 @@ class Lighditor {
     localStorage.setItem('lighditor.enableLog', 'false')
   }
 
-  static log () {
+  static log (...args) {
     if (localStorage.getItem('lighditor.enableLog') === 'true') {
-      console.log.apply(null, arguments)
+      console.log.apply(null, args)
     }
   }
 
-  static warn () {
+  static warn (...args) {
     if (localStorage.getItem('lighditor.enableLog') === 'true') {
-      console.warn.apply(null, arguments)
+      console.warn.apply(null, args)
     }
   }
 
@@ -285,12 +286,16 @@ class Lighditor {
    */
   _render (): void {
     // Render the text content
-    let textContent: string = this.editorState.textContent
-    let textContentRows: string[] = textContent.split('\n')
-    let html: string = ''
+    let textContent: string = this.editorState.textContent,
+        textContentRows: string[] = textContent.split('\n'),
+        html: string = '',
+        numOfRows: number = textContentRows.length
 
-    textContentRows.forEach((textContentRow) => {
-      html += '<div class="' + EditorClass.EDITOR_ROW + '" data-lighditor-type="row">' + textContentRow + '</div>'
+
+    textContentRows.forEach((textContentRow, row) => {
+      let newLineHTML = row !== numOfRows - 1 ? '<br class="' + EditorClass.EDITOR_NEWLINE + '">' : ''
+      // let newLineHTML = ''
+      html += '<div class="' + EditorClass.EDITOR_ROW + '" data-lighditor-type="row">' + textContentRow + newLineHTML + '</div>'
     })
 
     this.editorElement.innerHTML = html
@@ -354,6 +359,37 @@ class Lighditor {
   }
 
   /***** Lifecycle *****/
+  // There are four major lifecycles for a set of content in Lighditor. Lighditor will process the content
+  // by chunks defined by user, so that the four phases can happen in parallel.
+  // 
+  // Some keywords:
+  // chunk: a string chunk to be parsed/rendered as a whole, which will passing the following lifecycles. A chunk contains config
+  //        information, as well as the body of text content to be rendered
+  // set: a string set contains one or multiple chunks, and can be understood by parser to give highlights, autocompletes, etc
+  // 
+  // Compile phase 
+  // - Get the dirty HTML from browser after user interaction
+  // - Compile the HTML into chunks of formatted content strings, including all information needed for render
+  // - Passing the string chunks into rendering queue
+  // - Notify rendering queue if the previous string chunks is a complete set of content to parse
+  // - Notify rendering queue that compilation finishes and no more formatted string to render
+  // 
+  // Queue phase
+  // - The content string can be stored as chunks for rendering early access
+  // - Some queue keywords for singalling. For example 'SET_COMPLETE' for a EOF set signal.
+  // - Some queue management, for example promote some chunks by priority for rendering management
+  // 
+  // Render phase 
+  // - Read from the rendering queue for formatted string chunks to renderer
+  // - Render the string chunk with default plain text parser on screen
+  // - The rendered result will be formatted HTML
+  // 
+  // Parse phase
+  // - Parser will be required from comsumer of Lighditor or using the default one (plain text)
+  // - Parser is watching the renderer process. When it sees a signal for a set content in queue, it will start parsing
+  // - Whenever a parsed result is produced, it will be send to rendering queue in some proper priority
+  
+
   /**
    * Called after text content is changed
    */
@@ -365,28 +401,28 @@ class Lighditor {
   onSelectionChange (newSelection: Selection, oldSelection: Selection): void {}
 
 
-  /***** Text content *****/
+  /***** Compile phase *****/
   _dfsTraverseNode (callback: (node: Node, row: number, column: number) => ?boolean): void {
     let nodeStack = [this.editorElement],
-        row: number = 0,
+        row: number = -1,
         column: number = 0,
-        node: ?Node,
+        node: ?Node
         // When there are <br> element in row, we need to add extra row
-        extraRowCount: number = 0
+        // extraRowCount: number = 0
 
     while (node = nodeStack.pop()) {
-      if (this._isRowElement(node)) {
-        row = this._getRowIndex(node) + extraRowCount
-        column = 0
-      }
+      // /** Fix for firefox */
+      // if (this._isBRElement(node)) {
+      //   extraRowCount++
+      //   row++
+      //   column = 0
+      // }
+      // /** Fix for firefox end */
 
-      /** Fix for firefox */
-      if (this._isBrElement(node)) {
-        extraRowCount++
-        row++
+      if (this._isRowNode(node)) {
+        row = this._getRowIndex(node)
         column = 0
       }
-      /** Fix for firefox end */
 
       if (callback(node, row, column)) {
         break
@@ -396,7 +432,34 @@ class Lighditor {
         column += node.length
       }
 
-      if (!this._isRowEmpty(node) && node.childNodes && node.childNodes.length) {
+      if (node.childNodes && node.childNodes.length) {
+        let childNodes = node.childNodes
+        let childIndex: number = childNodes.length
+
+        while (childIndex--) {
+          nodeStack.push(childNodes[childIndex])
+        }
+      }
+    }
+  }
+
+  /**
+   * Traverse the raw dirty HTML in editor with DFS, which makes sure
+   * we are traversing from the beginning to the end of lines
+   */
+  _dfsTraverseRawNode (callback: (node: Node) => ?boolean): void {
+    let nodeStack = [this.editorElement],
+        node: ?Node
+        // When there are <br> element in row, we need to add extra row
+        // extraRowCount: number = 0
+
+    while (node = nodeStack.pop()) {
+
+      if (callback(node)) {
+        break
+      }
+
+      if (node.childNodes && node.childNodes.length) {
         let childNodes = node.childNodes
         let childIndex: number = childNodes.length
 
@@ -415,88 +478,193 @@ class Lighditor {
    * 2. firefox will keep the two piece of string in the same row and add a 'br' element
    */
   _compileTextContent (): string {
-    let contents: Array<string[]> = []
+    let contents: string = ''
 
-    this._dfsTraverseNode((node: Node, row: number, column: number) => {
-      console.log('Traverse node', node, row, column)
+    this._dfsTraverseRawNode((node: Node) => {
+      console.log('Traverse node', node)
 
-      if (this._isRowElement(node) || this._isBrElement(node)) {
-        // Warn if current row has content already. By DFS we are guaranteed
-        // the row element is ran againast with first
-        if (typeof contents[row] !== 'undefined') {
-          Lighditor.warn('Row ' + row + ' has rendered')
-        }
+      // if (this._isRowNode(node)) {
+      //   // Warn if current row has content already. By DFS we are guaranteed
+      //   // the row element is ran againast with first
+      //   if (typeof contents[row] !== 'undefined') {
+      //     Lighditor.warn('Row ' + row + ' has rendered')
+      //   }
 
-        // Make sure each row has a new line
-        contents[row] = []
-      }
+      //   // Make sure each row has a new line
+      //   contents[row] = []
+      // }
 
       if (node instanceof Text) {
-        let rowContent = contents[row]
+        // let rowContent = contents[row]
 
-        /** Error checks **/
+        // /** Error checks **/
 
-        // Warn if we have empty positions
-        if (column > 0 && typeof rowContent[column - 1] === 'undefined') {
-          console.warn('Row ' + row + ' has unassigned character at column ' + (column - 1))
-          // Need to make up all unassigned position with space key
-          let col = column
-          while (typeof rowContent[col - 1] === 'undefined') {
-            rowContent[col - 1] = ' '
-            col--
-          }
+        // // Warn if we have empty positions
+        // if (column > 0 && typeof rowContent[column - 1] === 'undefined') {
+        //   console.warn('Row ' + row + ' has unassigned character at column ' + (column - 1))
+        //   // Need to make up all unassigned position with space key
+        //   let col = column
+        //   while (typeof rowContent[col - 1] === 'undefined') {
+        //     rowContent[col - 1] = ' '
+        //     col--
+        //   }
 
-          // TODO: Should we return true and stop traversal?
-        }
+        //   // TODO: Should we return true and stop traversal?
+        // }
 
-        // Warn if we already have character at column position
-        if (rowContent.length > column) {
-          console.error('Row ' + row + ' has exist character at column ' + column)
-          return true
-        }
+        // // Warn if we already have character at column position
+        // if (rowContent.length > column) {
+        //   console.error('Row ' + row + ' has exist character at column ' + column)
+        //   return true
+        // }
 
-        /** Error checks end **/
+        // /** Error checks end **/
 
-        // Copy nodeText to row content
-        let nodeText = node.textContent
-        for (let i = column; i < nodeText.length; i++) {
-          rowContent[i] = nodeText[i - column]
-        }
+        // // Copy nodeText to row content
+        // let nodeText = node.textContent
+        // for (let i = column; i < nodeText.length; i++) {
+        //   rowContent[i] = nodeText[i - column]
+        // }
+
+        contents += node.textContent
       }
+
+      if (this._isNewLineElement(node)) {
+        contents += '\n'
+      }
+
     })
 
-    console.log('content: ', contents.map((rowArray) => { return rowArray.join('\n') }))
+    console.log('content: ', contents)
     console.log('------------------ Traverse node finished ------------------')
 
-    return contents.map((rowArray) => { return rowArray.join('') }).join('\n')
+    // Try some crazy regexp way
+    // let tempElement: HTMLElement = document.createElement('div')
+
+    // tempElement.innerHTML = this.editorElement.innerHTML
+    //   .replace(/<(div|p|br)[^<]*?>/g, '&lt;br /&gt;')
+    //   .replace(/<([(i|a|b|u)^>]+)>(.*?)<\/\1>/gim,
+    //     function(v) { return '' + window.escape(v) + ''; })
+
+    // contents = tempElement.textContent
+
+    // function extractTextWithWhitespace( elems ) {
+    //     var ret = "", elem;
+
+    //     for ( var i = 0; elems[i]; i++ ) {
+    //         elem = elems[i];
+
+    //         // Get the text from text nodes and CDATA nodes
+    //         if ( elem.nodeType === 3 || elem.nodeType === 4 ) {
+    //             ret += elem.nodeValue + "\n";
+
+    //         // Traverse everything else, except comment nodes
+    //         } else if ( elem.nodeType !== 8 ) {
+    //             ret += extractTextWithWhitespace( elem.childNodes );
+    //         }
+    //     }
+
+    //     return ret;
+    // }
+
+    // contents = extractTextWithWhitespace([this.editorElement])
+
+    // contents = this.editorElement.innerText
+
+    // dirtyHTML = this.editorElement.innerHTML
+
+
+    return contents
   }
 
-  /**
-   * Recursively goes up and get the row node from current node
-   */
-  _getParentRowNode (node: Node): ?RowInfo {
-    let runningNode = node
+  // _compileTextContent (): string {
+  //   let contents: string = ''
 
-    while (runningNode && runningNode !== this.editorElement) {
-      if (((runningNode instanceof HTMLElement) || (runningNode instanceof Text)) && runningNode.parentElement === this.editorElement) {
+  //   this._dfsTraverseNode((node: Node, row: number, column: number) => {
+  //     console.log('Traverse node', node, row, column)
+
+  //     if (this._isRowNode(node) || this._isBRElement(node)) {
+  //       // Warn if current row has content already. By DFS we are guaranteed
+  //       // the row element is ran againast with first
+  //       if (typeof contents[row] !== 'undefined') {
+  //         Lighditor.warn('Row ' + row + ' has rendered')
+  //       }
+
+  //       // Make sure each row has a new line
+  //       contents[row] = []
+  //     }
+
+  //     if (node instanceof Text) {
+  //       let rowContent = contents[row]
+
+  //       /** Error checks **/
+
+  //       // Warn if we have empty positions
+  //       if (column > 0 && typeof rowContent[column - 1] === 'undefined') {
+  //         console.warn('Row ' + row + ' has unassigned character at column ' + (column - 1))
+  //         // Need to make up all unassigned position with space key
+  //         let col = column
+  //         while (typeof rowContent[col - 1] === 'undefined') {
+  //           rowContent[col - 1] = ' '
+  //           col--
+  //         }
+
+  //         // TODO: Should we return true and stop traversal?
+  //       }
+
+  //       // Warn if we already have character at column position
+  //       if (rowContent.length > column) {
+  //         console.error('Row ' + row + ' has exist character at column ' + column)
+  //         return true
+  //       }
+
+  //       /** Error checks end **/
+
+  //       // Copy nodeText to row content
+  //       let nodeText = node.textContent
+  //       for (let i = column; i < nodeText.length; i++) {
+  //         rowContent[i] = nodeText[i - column]
+  //       }
+  //     }
+  //   })
+
+  //   console.log('content: ', contents.map((rowArray) => { return rowArray.join('\n') }))
+  //   console.log('------------------ Traverse node finished ------------------')
+
+  //   return contents.map((rowArray) => { return rowArray.join('') }).join('\n')
+  // }
+
+  /**
+   * Recursively goes up and get the row node from current node.
+   * Also calculate the row for given node
+   */
+  _getRowInfo (node: Node): ?RowInfo {
+    let currentNode = node
+
+    while (currentNode && currentNode !== this.editorElement) {
+      if (this._isRowNode(currentNode)) {
+        // Found nearest row container
         let rowCount = 0
-        let n = runningNode
+        let n = currentNode
         for (; (n = n.previousSibling); rowCount++) {}
 
         return {
-          element: runningNode,
+          container: currentNode,
           row: rowCount
         }
       }
 
-      runningNode = runningNode.parentElement
+      currentNode = currentNode.parentElement
     }
 
     return null
   }
 
+  /**
+   * Get the row index of given node
+   */
   _getRowIndex (node: Node): number {
-    let rowNode: ?RowInfo = this._getParentRowNode(node)
+    let rowNode: ?RowInfo = this._getRowInfo(node)
     if (!rowNode) {
       return -1
     } else {
@@ -513,30 +681,48 @@ class Lighditor {
     }
   }
 
-  _isRowElement (node: Node): boolean {
-    return node.parentElement === this.editorElement
+  /**
+   * Return true if the given node should be represented as a single row
+   */
+  _isRowNode (node: Node): boolean {
+    // return node.parentElement === this.editorElement
+    return node.dataset && node.dataset['lighditorType'] === 'row'
   }
 
-  _isBrElement (node: Node): boolean {
+  _isBRElement (node: Node): boolean {
     // TODO: FLOW cannot reslove HTMLBRElement!
     // return node instanceof HTMLBRElement
     return node.nodeName === 'BR'
   }
 
-  _isRowEmpty (node: Node): boolean{
-    let rowInfo: ?RowInfo = this._getParentRowNode(node)
-    if (rowInfo) {
-      // let childNodes = rowInfo.element.childNodes
-
-      // childNodes
-
-      // return childNodes && childNodes.length === 1 && this._isBrElement(childNodes[0])
-      return rowInfo.element.textContent === ''
-    }
-    else {
-      return false
-    }
+  _isNewLineElement (node: Node): boolean {
+    // return this._isBRElement(node) || this._isRowNode(node)
+    return this._isRowNode(node)
   }
+
+  /**
+   * A new line row node is a node that has only <br>s
+   */
+  // _isNewLineRow (node: Node): boolean{
+  //   let hasOnlyBrNode = false
+
+  //   if (node.childNodes && node.childNodes.length) {
+
+  //   }
+
+  //   if (node.textContent === '' && )
+  // }
+
+
+  /***** Queue phase *****/
+
+  /***** Render phase *****/
+
+  /***** Parse phase *****/
+
+
+
+  /***** Editor utils *****/
 
   /***** Cursor and selection *****/
   _getSelectionNodePosition (positionType: PositionTypeEnum): ?Position {
@@ -561,14 +747,14 @@ class Lighditor {
         return null
       }
 
-      let rowInfo: ?RowInfo = this._getParentRowNode(node)
+      let rowInfo: ?RowInfo = this._getRowInfo(node)
 
       if (!rowInfo) {
         return null
       }
 
       let rangeBeforeNodeInRow = document.createRange()
-      rangeBeforeNodeInRow.selectNodeContents(rowInfo.element)
+      rangeBeforeNodeInRow.selectNodeContents(rowInfo.container)
       rangeBeforeNodeInRow.setEnd(node, 0)
 
       return {
@@ -742,397 +928,3 @@ class Lighditor {
 }
 
 window.Lighditor = Lighditor
-
-// goog.provide 'opa.utils.Editor'
-
-// goog.require 'opa.utils.expressionParser.Parser'
-// goog.require 'opa.utils.expressionParser.TokenTypes'
-
-// # Import your own editor parser
-// expressionParser = opa.utils.expressionParser.Parser
-// tokenTypes = opa.utils.expressionParser.TokenTypes
-
-// expressionParser('ADD_EXP  ([Field 1], [Field 2] )')
-
-// EditorClass =
-//   CONTAINER: 'opaEditorContainer'
-//   INPUT: 'opaEditorInput'
-//   INPUT_MASK: 'opaEditorInputMask'
-
-// class Editor
-
-//   constructor: (@prop = {}) ->
-//     @inputElement = @prop.inputElement
-
-//     @resetRender()
-//     @buildEditor()
-//     @listen()
-//     @attachListeners()
-
-//   resetRender: () ->
-//     @renderedHtml = ''
-//     @parenthesisId = 0
-//     @processPos = 0
-//     @openParenthesis = []
-
-//   buildEditor: () ->
-//     # Error checks
-//     if not @inputElement
-//       throw new Error 'Missing input element for editor'
-
-//     wrapperElement = document.createElement 'div'
-//     wrapperElement.classList.add EditorClass.CONTAINER
-
-//     # Replace with input element
-//     @inputElement.parentNode.replaceChild wrapperElement, @inputElement
-//     @inputElement.classList.add EditorClass.INPUT
-//     # Make sure the original input is not shown
-//     @inputElement.style.display = 'none'
-//     wrapperElement.appendChild @inputElement
-
-//     # Create the autocomplete input mask
-//     @inputMask = document.createElement 'div'
-//     @inputMask.classList.add EditorClass.INPUT_MASK
-//     # Make the HTML div element editable
-//     @inputMask.setAttribute 'contenteditable', true
-//     # Sync with input text
-//     @setText @inputElement.value
-//     wrapperElement.appendChild @inputMask
-
-//   listen: () =>
-//     @inputMask.addEventListener 'keydown', @handleInputMaskKeydown
-//     @inputMask.addEventListener 'keyup', @handleInputMaskKeyup
-//     @inputElement.addEventListener 'change', @handleInputElementChange
-
-//   attachListeners: () ->
-//     # Make sure the listeners are attached from the constructor
-//     for eventName, eventHandler of @prop.eventHandlers
-//       @inputMask.addEventListener eventName, eventHandler
-
-//   # Event handlerseiejccfnkblfnvcfivcgndbrbjefiirgnejtinujjked
-//   handleInputMaskKeydown: () =>
-//     @syncMaskWithInput()
-
-//   handleInputMaskKeyup: () =>
-//     @syncMaskWithInput()
-//     @processContent()
-
-//   handleInputElementChange: () =>
-//     newValue = @inputElement.value
-//     # We need to make sure after each change, the input element
-//     # and the mask have same results. We already handled the
-//     # mask -> input flow. Here we handle the other flow
-//     @setText(newValue) if newValue isnt @inputMask.innerText
-
-//   # Utils
-//   syncMaskWithInput: () =>
-//     # Copy the text from input mask to the input element
-//     @inputElement.value = @inputMask.innerText
-
-//   # Render content logic
-//   # convert the content text into html based on parsed result
-//   processContent: (contentText = @inputMask.innerText) =>
-//     @saveSelection()
-//     @resetRender()
-//     parsed = expressionParser contentText
-//     @renderContent parsed
-//     @inputMask.innerHTML = @renderedHtml
-//     @_restoreSelection()
-
-//   getSpaceHtml: (numOfSpace = 0) ->
-//     return '' if numOfSpace is 0
-//     spaceHtml = '''<span class="editorSpace">'''
-//     while numOfSpace > 0
-//       spaceHtml += ' '
-//       numOfSpace--
-//     spaceHtml += '''</span>'''
-//     return spaceHtml
-
-//   addSpaceHtmlBefore: (node) =>
-//     if @processPos < node.charFrom
-//       @renderedHtml += @getSpaceHtml(node.charFrom - @processPos)
-//       @processPos = node.charFrom
-
-//   addSpaceHtmlAfter: (node) =>
-//     if @processPos < node.charTo
-//       @renderedHtml += @getSpaceHtml(node.charTo - @processPos)
-//       @processPos = node.charTo
-
-//   addParenthesis: () ->
-//     @renderedHtml += """<span class="editorOpenParenthesis" data-parenthesis-id="#{@parenthesisId}">(</span>"""
-//     @openParenthesis.push parenthesisId
-//     @parenthesisId++
-
-//   removeParenthesis: (parenthesisElement) ->
-//     parenthesisId = parenthesisElement.dataset.parenthesisId
-//     unless _.isUndefined(parenthesisId)
-//       allParenthesis = @inputMask.querySelectorAll "[data-parenthesis-id='#{parenthesisId}']"
-//       @inputMask.removeChild child for child in allParenthesis
-
-//   renderChildren: (children) =>
-//     sortedNodes = _.sortBy children, (node) -> return node.charFrom
-//     # Render each node in the order of char from
-//     for node in sortedNodes
-//       @addSpaceHtmlBefore node
-//       @renderContent node
-
-//   renderContent: (parsedNode) =>
-//     @addSpaceHtmlBefore parsedNode
-
-//     switch parsedNode.type
-//       when tokenTypes.COMPOUND
-//         @renderChildren parsedNode.body
-//         @addSpaceHtmlAfter parsedNode
-
-//       when tokenTypes.CALL_EXP
-//         # First render callee
-//         callee = parsedNode.callee
-//         @addSpaceHtmlBefore callee
-//         @renderContent callee
-
-//         # Render '('
-//         addParenthesis()
-
-//         # Render the arguments
-//         @renderChildren parsedNode.arguments.list
-//         @addSpaceHtmlAfter parsedNode
-
-//       when tokenTypes.LITERAL, tokenTypes.NUMERIC_LITERAL, tokenTypes.STRING_LITERAL
-//         @renderedHtml += """
-//           <span class="editorToken editor#{parsedNode.type}" data-char-from="#{parsedNode.charFrom}" data-char-to="#{parsedNode.charTo}">#{parsedNode.raw}</span>
-//         """
-
-//       when tokenTypes.IDENTIFIER
-//         @renderedHtml += """
-//           <span class="editorToken editor#{parsedNode.type}"  data-char-from="#{parsedNode.charFrom}" data-char-to="#{parsedNode.charTo}">#{parsedNode.name}</span>
-//         """
-
-//     @processPos = parsedNode.charTo
-
-//   # DOM element getter
-//   getContainer: () => @inputMask.parentNode
-
-//   # Cursor related
-//   getCaretPosition: () =>
-//     # caretPos = 0
-
-//     # if sel = window.getSelection?()
-//     #   if sel.rangeCount
-//     #     range = sel.getRangeAt(0)
-//     #     caretPos = range.endOffset if range.commonAncestorContainer.parentNode is @inputMask
-
-//     # return caretPos
-
-//     currentSelection = @getSelection()
-//     if currentSelection
-//       return currentSelection.end
-//     else return 0
-
-//   setCaretPosition: (cursorPosition) =>
-//     # if (sel = window.getSelection?()) and (range = document.createRange?()) and @inputMask.childNodes[0]
-//     #   range.setStart node, cursorPosition
-//     #   range.collapse true
-//     #   sel.removeAllRanges()
-//     #   sel.addRange range
-//     #   @inputMask.focus()
-
-//     if _.isUndefined cursorPosition
-//       if @selection
-//         cursorStartPosition = @selection.start
-//         cursorEndPosition = @selection.end
-//       else if currentSelection = @getSelection()
-//         cursorStartPosition = currentSelection.start
-//         cursorEndPosition = currentSelection.end
-//     else
-//       cursorStartPosition = cursorPosition
-//       cursorEndPosition = cursorPosition
-
-//     selection =
-//       start: cursorStartPosition
-//       end: cursorEndPosition
-
-//     @_restoreSelection selection
-
-//   getHtmlNodeUnderCursor: () ->
-//     return sel.focusNode if sel = window.getSelection?()
-
-//   _getNodeStartPos: () ->
-//     if (sel = window.getSelection?()) and document.createRange?
-//       return -1 unless focusNode = sel.focusNode
-
-//       preSelectionRange = document.createRange()
-//       preSelectionRange.selectNodeContents @inputMask
-//       preSelectionRange.setEnd focusNode, 0
-//       return preSelectionRange.toString().length
-
-//     else
-//       console.warn 'Editor selection persist feature does not support'
-//       return -1
-
-//   getNodePosUnderCursor: () =>
-//     if (sel = window.getSelection?()) and document.createRange?
-//       return null unless focusNode = sel.focusNode
-
-//       start = @_getNodeStartPos()
-//       return null unless start >= 0
-
-//     # if (sel = window.getSelection?()) and document.createRange?
-//     #   return null unless focusNode = sel.focusNode
-
-//     #   preSelectionRange = document.createRange()
-//     #   preSelectionRange.selectNodeContents @inputMask
-//     #   preSelectionRange.setEnd focusNode, 0
-//     #   start = preSelectionRange.toString().length
-
-//       return {
-//         start: start
-//         end: start + focusNode.toString().length
-//       }
-//     else
-//       console.warn 'Editor selection persist feature does not support'
-//       return null
-
-//   # Get the current selection and cursor position
-//   # REF: https://stackoverflow.com/questions/13949059/persisting-the-changes-of-range-objects-after-selection-in-html
-//   getSelection: () =>
-//     if (sel = window.getSelection?()) and document.createRange?
-//       return @selection = null unless sel.focusNode
-
-//       range = sel.getRangeAt(0)
-//       selectionStartPos = @_getNodeStartPos()
-
-//       if selectionStartPos >= 0
-//         start = selectionStartPos + range.startOffset
-//         return {
-//           start: start
-//           end: start + range.toString().length
-//         }
-//       else
-//         return null
-
-//       # preSelectionRange = range.cloneRange()
-//       # preSelectionRange.selectNodeContents @inputMask
-//       # preSelectionRange.setEnd range.startContainer, range.startOffset
-//       # start = preSelectionRange.toString().length
-
-//       # return {
-//       #   start: start
-//       #   end: start + range.toString().length
-//       # }
-
-//     else
-//       console.warn 'Editor selection persist feature does not support'
-//       return null
-
-//   # Save the current selection and cursor position
-//   # REF: https://stackoverflow.com/questions/13949059/persisting-the-changes-of-range-objects-after-selection-in-html
-//   saveSelection: () => @selection = @getSelection()
-
-//   # Restore the saved selection and cursor position
-//   # REF: https://stackoverflow.com/questions/13949059/persisting-the-changes-of-range-objects-after-selection-in-html
-//   _restoreSelection: (selection = @selection) =>
-//     if window.getSelection? and document.createRange?
-//       return unless selection
-
-//       charIndex = 0
-//       range = document.createRange()
-//       range.setStart @inputMask, 0
-//       range.collapse true
-
-//       nodeStack = [@inputMask]
-//       foundStart = false
-//       stop = false
-
-//       while (not stop and (node = nodeStack.pop()))
-//         if node.nodeType is window.Node.TEXT_NODE
-//           nextCharIndex = charIndex + node.length
-//           if not foundStart and selection.start >= charIndex and selection.start <= nextCharIndex
-//             range.setStart node, selection.start - charIndex
-//             foundStart = true
-
-//           if foundStart && selection.end >= charIndex && selection.end <= nextCharIndex
-//             range.setEnd(node, selection.end - charIndex)
-//             stop = true
-
-//           charIndex = nextCharIndex
-
-//         else
-//           children = node.childNodes
-//           nodeIndex = children.length
-//           while nodeIndex--
-//             nodeStack.push children[nodeIndex]
-
-//       sel = window.getSelection()
-//       sel.removeAllRanges()
-//       sel.addRange range
-//     else
-//       console.warn 'Editor selection persist feature does not support'
-
-//     @selection = null
-
-//   getNodeUnderCursor: (cursorPosition) ->
-//     if window.getSelection? and document.createRange?
-//       sel = window.getSelection()
-
-
-//   # # Set the selection to be previous word under cursor
-//   # getWordSelectionUnderCursor: (fullString, cursorPosition) ->
-//   #   preWordRegexp = /^.*?\s*([^\s]*)$/ # Lazy matching
-//   #   postWordRegexp = /^([^\s]*)\s*.*$/
-//   #   preWord = fullString.slice 0, cursorPosition
-//   #   postWord = fullString.slice cursorPosition
-
-//   #   preMatches = preWord.match preWordRegexp
-//   #   postMatches = postWord.match postWordRegexp
-
-//   #   # There should always be matches for both pre and post matches
-//   #   return null if not preMatches or not postMatches
-
-//   #   start: cursorPosition - preMatches[1].length
-//   #   end: cursorPosition + postMatches[1].length
-//   #   selectedText: preMatches[1] + postMatches[1]
-//   #   fullText: fullString
-
-//   # Editor operation
-//   # setText: (editableElement, cursorPosition, textObj, setType) ->
-//   # Set the focused word to be update
-//   # The focused word is the same to selection if selection exists.
-//   # Otherwise it is the node where under the cursor
-//   setFocusedWord: () =>
-//     @focusedWord = @getSelection()
-
-//     # if currentSelection.start is currentSelection.end
-//     #   @focusedWord = @getNodePosUnderCursor()
-//     # else
-//     #   @focusedWord = currentSelection
-
-//   # The defination of focused word is the word to be updated
-//   # In most case it's the same to selection, but in some cases
-//   # we want to update the un-selected words (to be supported)
-//   updateFocusedWord: (wordToUpdate) =>
-//     return unless wordToUpdate
-
-//     if @focusedWord
-//       oldString = @inputMask.innerText
-//       newString = oldString.slice(0, @focusedWord.start) \
-//         + wordToUpdate \
-//         + oldString.slice(@focusedWord.end)
-//       @setCaretPosition @focusedWord.start + wordToUpdate.length
-//       @setText newString
-//     else
-//       @setCaretPosition @inputMask.innerText.length + wordToUpdate.length
-//       # Append the focusedWord name into autocomplete input box
-//       # Only append the remaining strings to complete typing
-//       @setText(@inputMask.innerText + wordToUpdate)
-
-//     @syncMaskWithInput()
-
-//   setText: (contentText) =>
-//     # @inputMask.innerText = contentText
-//     @processContent contentText
-
-//   getText: () => @inputMask.innerText
-//   focusEditor: () =>
-//     @inputMask.focus()
-
-// opa.utils.Editor = Editor
