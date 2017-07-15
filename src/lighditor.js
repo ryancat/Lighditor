@@ -338,7 +338,7 @@ class Lighditor {
   }
 
   _handleKeydown (evt: KeyboardEvent) {
-
+    Lighditor.log('_handleKeydown:', evt)
   }
 
   _handleKeyup (evt: KeyboardEvent) {
@@ -361,34 +361,34 @@ class Lighditor {
   /***** Lifecycle *****/
   // There are four major lifecycles for a set of content in Lighditor. Lighditor will process the content
   // by chunks defined by user, so that the four phases can happen in parallel.
-  // 
+  //
   // Some keywords:
   // chunk: a string chunk to be parsed/rendered as a whole, which will passing the following lifecycles. A chunk contains config
   //        information, as well as the body of text content to be rendered
   // set: a string set contains one or multiple chunks, and can be understood by parser to give highlights, autocompletes, etc
-  // 
-  // Compile phase 
+  //
+  // Compile phase
   // - Get the dirty HTML from browser after user interaction
   // - Compile the HTML into chunks of formatted content strings, including all information needed for render
   // - Passing the string chunks into rendering queue
   // - Notify rendering queue if the previous string chunks is a complete set of content to parse
   // - Notify rendering queue that compilation finishes and no more formatted string to render
-  // 
+  //
   // Queue phase
   // - The content string can be stored as chunks for rendering early access
   // - Some queue keywords for singalling. For example 'SET_COMPLETE' for a EOF set signal.
   // - Some queue management, for example promote some chunks by priority for rendering management
-  // 
-  // Render phase 
+  //
+  // Render phase
   // - Read from the rendering queue for formatted string chunks to renderer
   // - Render the string chunk with default plain text parser on screen
   // - The rendered result will be formatted HTML
-  // 
+  //
   // Parse phase
   // - Parser will be required from comsumer of Lighditor or using the default one (plain text)
   // - Parser is watching the renderer process. When it sees a signal for a set content in queue, it will start parsing
   // - Whenever a parsed result is produced, it will be send to rendering queue in some proper priority
-  
+
 
   /**
    * Called after text content is changed
@@ -573,7 +573,9 @@ class Lighditor {
 
     // dirtyHTML = this.editorElement.innerHTML
 
-
+    contents = this.editorElement.innerHTML
+      .replace(/\<br/g, '\n')
+      .replace(/\<[^>]*\>/g, '')
     return contents
   }
 
