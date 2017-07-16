@@ -21,7 +21,10 @@ type Selection = {
 }
 
 type LighditorConfig = {
-  initTextContent: string
+  initTextContent: string,
+  viewStartRow: number,
+  viewableRows: number
+  // shouldRender: ?(editorState: LighditorState, oldEditorState: ?LighditorState) => boolean
 }
 
 type LighditorProps = {
@@ -31,11 +34,12 @@ type LighditorProps = {
 
 type LighditorState = {
   textContent: string,
-  cursorPosition: Position,
   selection: {
     start: Position,
     end: Position
-  }
+  },
+  viewStartRow: number,
+  viewableRows: number
 }
 
 type RowInfo = {
@@ -88,7 +92,6 @@ const lighditorUtil = {
 
     return throttled
   }
-
 }
 
 class Lighditor {
@@ -97,13 +100,18 @@ class Lighditor {
   editorElement: HTMLElement
   editorState: LighditorState
   editorConfig: LighditorConfig
-  _openParenthesis: number[]
-  _processPosition: Position
-  render: () => mixed
+  // _openParenthesis: number[]
+  // _processPosition: Position
+  // render: () => mixed
+  // shouldRender: (editorState: LighditorState, oldEditorState: ?LighditorState) => boolean
 
   constructor (element: HTMLElement, config: LighditorConfig) {
     this.element = element
     this.editorConfig = config
+
+    // if (config.shouldRender) {
+    //   this.shouldRender = config.shouldRender
+    // }
 
     // Error checks
     if (typeof this.element === 'undefined') {
@@ -138,7 +146,10 @@ class Lighditor {
   // Create a instance of Lighditor class
   static create (element: HTMLElement, config: ?LighditorConfig) {
     let actualConfig: LighditorConfig = {
-      initTextContent: ''
+      initTextContent: '',
+      viewStartRow: 0,
+      viewableRows: Infinity
+      // shouldRender: null
     }
 
     // make sure defaults in config
@@ -196,13 +207,48 @@ class Lighditor {
     }
   }
 
+  static get util() {
+
+    return {
+      keycode: {
+        ENTER: 13,
+        BACKSPACE: 8
+      },
+
+      getKeycode: (event: KeyboardEvent): number => {
+        let keyCode = event.which
+
+        // getting the key code from event
+        if (null === keyCode) {
+            keyCode = event.charCode !== null ? event.charCode : event.keyCode
+        }
+
+        return keyCode
+      },
+
+      /**
+       * Return true if the given key is a valid character input
+       * Ref https://css-tricks.com/snippets/javascript/javascript-keycodes/
+       */
+      isValidCharInput: (event: KeyboardEvent): boolean => {
+        let key: number = Lighditor.util.getKeycode(event)
+
+        return (48 <= key && key <= 57) // Numbers
+          || (65 <= key && key <= 90) // a-z
+          || (96 <= key && key <= 111) // Keypad
+          || (186 <= key && key <= 192) // period
+          || (219 <= key && key <= 222) // brakets
+      }
+    }
+  }
+
   /***** Setters *****/
   setTextContent (textContent: string): void {
     let oldTextContent = this.editorState.textContent
 
-    if (textContent === oldTextContent) {
-      return
-    }
+    // if (textContent === oldTextContent) {
+    //   return
+    // }
 
     this._setEditorState({
       ...this.editorState,
@@ -218,7 +264,7 @@ class Lighditor {
     this._setEditorState({
       ...this.editorState,
       selection
-    }, true)
+    })
 
     this.onSelectionChange(selection, oldSelection)
   }
@@ -284,75 +330,219 @@ class Lighditor {
   /**
    * Render the editor element inner html based on current editor state
    */
-  _render (): void {
-    // Render the text content
-    let textContent: string = this.editorState.textContent,
-        textContentRows: string[] = textContent.split('\n'),
-        html: string = '',
-        numOfRows: number = textContentRows.length
+  _render (isTextContentChange: boolean = true): void {
 
+    if (isTextContentChange) {
+      // Render the text content
+      let textContent: string = this.editorState.textContent,
+          textContentRows: string[] = textContent.split('\n'),
+          html: string = '',
+          numOfRows: number = textContentRows.length
 
-    textContentRows.forEach((textContentRow, row) => {
-      let newLineHTML = row !== numOfRows - 1 ? '<br class="' + EditorClass.EDITOR_NEWLINE + '">' : ''
-      // let newLineHTML = ''
-      html += '<div class="' + EditorClass.EDITOR_ROW + '" data-lighditor-type="row">' + textContentRow + newLineHTML + '</div>'
-    })
+      textContentRows.forEach((textContentRow, row) => {
+        let newLineHTML = row !== numOfRows - 1 ? '<br class="' + EditorClass.EDITOR_NEWLINE + '" data-lighditor-type="newline">' : ''
+        // let newLineHTML = ''
+        html += '<div class="' + EditorClass.EDITOR_ROW + '" data-lighditor-type="row">' + textContentRow + newLineHTML + '</div>'
+      })
 
-    this.editorElement.innerHTML = html
+      this.editorElement.innerHTML = html
+    }
 
     // Attach the current selection/cursor
-    this._restoreSelection()
+    this._applySelection()
+  }
+
+  _renderParsed (): void {
+
+    // if (this.parser)
+
   }
 
   _resetRender (): void {
+    let defaultViewableRows = this.editorConfig.viewableRows
+
     this._setEditorState({
       textContent: '',
-      cursorPosition: { row: 0, column: 0 },
       selection: {
         start: { row: 0, column: 0 },
         end: { row: 0, column: 0 }
-      }
+      },
+      viewStartRow: 0,
+      viewableRows: defaultViewableRows || Infinity
     })
   }
 
-  _setEditorState (editorState: LighditorState, silence: boolean = false): void {
-    Lighditor.log((silence ? 'silently ' : '') + 'set editor state: ', editorState)
+  _shouldRenderTextContent (editorState: LighditorState, oldEditorState: ?LighditorState): boolean {
+    // if (oldEditorState) {
+    //   return editorState.textContent !== oldEditorState.textContent
+    // }
+    // else {
+    //   return true
+    // }
+
+    return !oldEditorState || editorState.textContent !== oldEditorState.textContent
+  }
+
+  _shouldRenderSelection (editorState: LighditorState, oldEditorState: ?LighditorState): boolean {
+    return !oldEditorState || editorState.selection !== oldEditorState.selection
+  }
+
+  _setEditorState (editorState: LighditorState): void {
+    Lighditor.log('set editor state: ', editorState)
+
+    let oldEditorState = this.editorState
 
     this.editorState = {
       ...editorState
     }
 
-    // When we set editor state, we need to re-render the content
-    // based on given parser
+    this._render(!oldEditorState || this.editorState.textContent !== oldEditorState.textContent)
+
     // TODO: Considering use virtual dom to render editor
-    if (!silence) {
-      this._render()
-    }
+    // if (this._shouldRenderTextContent(this.editorState, oldEditorState)) {
+    //   this._renderTextConent()
+    // }
+
+    // if (this._shouldRenderSelection(this.editorState, oldEditorState)) {
+    //   this._applySelection()
+    // }
   }
 
   /***** Events *****/
   _listen (): void {
     this.editorElement.addEventListener('keydown', this._handleKeydown.bind(this))
     this.editorElement.addEventListener('keyup', this._handleKeyup.bind(this))
+    // this.editorElement.addEventListener('paste', this._handlePaste.bind(this))
     this.editorElement.addEventListener('mouseup', this._handleMouseup.bind(this))
   }
 
+  /**
+   * Keydown event handler
+   * Special key stroke will be handled here, so that we have full control
+   * of the actually rendered DOM
+   *
+   * @param  {[type]} evt: KeyboardEvent [description]
+   * @return {[type]}      [description]
+   */
   _handleKeydown (evt: KeyboardEvent) {
     Lighditor.log('_handleKeydown:', evt)
+
+    let cursorPosition: Position = this.getCursorPosition()
+
+    if (Lighditor.util.getKeycode(evt) === Lighditor.util.keycode.ENTER) {
+      // When hit enter key, we will simply update the selection and text content
+      // with a newline character. The renderer will be able to pick up and render
+      // the text content with clean format
+      evt.preventDefault()
+
+      // Update the selection state to the new line
+      let newRow: number = cursorPosition.row + 1
+
+      this.setSelection({
+        start: {
+          row: newRow,
+          column: 0
+        },
+        end: {
+          row: newRow,
+          column: 0
+        }
+      })
+
+      // Manually set text content
+      this.setTextContent(this._insertTextAtPosition('\n', cursorPosition))
+    }
+
+    if (Lighditor.util.getKeycode(evt) === Lighditor.util.keycode.BACKSPACE
+      && cursorPosition.column === 0) {
+      // When hit backspace key at the beginning of a row, Chrome will remove
+      // the new line element at the previous row. Let's add it back
+      evt.preventDefault()
+
+      // Update the selection state to the prev line
+      let newRow: number = Math.max(cursorPosition.row - 1, 0),
+          rowElement = this._getRowElementByIndex(newRow),
+          newColumn: number = (rowElement instanceof HTMLElement) ? rowElement.textContent.length : 0
+
+      this.setSelection({
+        start: {
+          row: newRow,
+          column: newColumn
+        },
+        end: {
+          row: newRow,
+          column: newColumn
+        }
+      })
+
+      // Manually set text content
+      this.setTextContent(this._removeTextAtPosition(cursorPosition))
+    }
+
+    // switch (Lighditor.util.getKeycode(evt)) {
+    //   case Lighditor.util.keycode.ENTER:
+    //     event.preventDefault()
+
+    //     // When hit enter key, a new line will generated and the rest of the current
+    //     // line will be moved to the new line
+    //     // let newLineFragment = document.createDocumentFragment()
+
+    //     // TODO: use view start rows and viable rows, as well as viewed rows to decide
+    //     // which part of code needs to be compiled
+    //     let cursorPosition: Position = this.getCursorPosition()
+    //     this.setTextContent(this._insertTextAtPosition('\n', cursorPosition))
+
+    //     // Update the selection state to the new line
+    //     this.setSelection({
+    //       start: {
+    //         row: cursorPosition.row + 1,
+    //         column: 0
+    //       },
+    //       end: {
+    //         row: cursorPosition.row + 1,
+    //         column: 0
+    //       }
+    //     })
+
+    //   default:
+    //     break
+    // }
+
+    // this._process
+    // this.setTextContent(this._compileKeydown(evt, this.getCursorPosition()))
+    // let oldTextContent: string = this.getTextContent(),
+    //     newTextContent: string = this._compileKeydown(evt, this.getCursorPosition())
+
+    // if (newTextContent !== oldTextContent) {
+    // }
   }
 
   _handleKeyup (evt: KeyboardEvent) {
-    let textContent: string = this._compileTextContent()
+    // let textContent: string = this._compileTextContent()
+    if (Lighditor.util.getKeycode(evt) === Lighditor.util.keycode.ENTER) {
+      evt.preventDefault()
+      return
+    }
 
-    // TODO: update selection if arrow key is up
+    // // TODO: update selection if arrow key is up
     this._updateSelection()
 
-    // TODO: We may not need to update the whole editor text content
-    // but only the section that is actually changed
-    // this.saveSelection()
-    this.setTextContent(textContent)
-    // this._restoreSelection()
+    // evt.preventDefault()
+    // // TODO: We may not need to update the whole editor text content
+    // // but only the section that is actually changed
+    // // this.saveSelection()
+    // if (Lighditor.util.isValidCharInput(evt)) {
+    //   // let textContent: string = this._compileTextContent()
+    //   this.setTextContent(this._compileTextContent())
+    // }
+
+    this.setTextContent(this._compileTextContent())
+    // // this._applySelection()
   }
+
+  // _handlePaste (evt: KeyboardEvent) {
+  //   Lighditor.log('_handlePaste', evt)
+  // }
 
   _handleMouseup (evt: MouseEvent) {
     this._updateSelection()
@@ -481,7 +671,7 @@ class Lighditor {
     let contents: string = ''
 
     this._dfsTraverseRawNode((node: Node) => {
-      console.log('Traverse node', node)
+      // console.log('Traverse node', node)
 
       // if (this._isRowNode(node)) {
       //   // Warn if current row has content already. By DFS we are guaranteed
@@ -535,8 +725,8 @@ class Lighditor {
 
     })
 
-    console.log('content: ', contents)
-    console.log('------------------ Traverse node finished ------------------')
+    // console.log('content: ', contents)
+    // console.log('------------------ Traverse node finished ------------------')
 
     // Try some crazy regexp way
     // let tempElement: HTMLElement = document.createElement('div')
@@ -573,10 +763,51 @@ class Lighditor {
 
     // dirtyHTML = this.editorElement.innerHTML
 
-    contents = this.editorElement.innerHTML
-      .replace(/\<br/g, '\n')
-      .replace(/\<[^>]*\>/g, '')
+    // contents = this.editorElement.innerHTML
+    //   .replace(/\<br/g, '\n')
+    //   .replace(/\<[^>]*\>/g, '')
     return contents
+  }
+
+  /**
+   * compile happens when keydown. Manually translate the keyboard input
+   * to actual text content
+   */
+  _compileKeydown (event: KeyboardEvent, cursorPosition: Position): string {
+    Lighditor.log('compile', arguments)
+
+    switch (Lighditor.util.getKeycode(event)) {
+      case Lighditor.util.keycode.ENTER:
+        event.preventDefault()
+
+        // When hit enter key, a new line will generated and the rest of the current
+        // line will be moved to the new line
+        // let newLineFragment = document.createDocumentFragment()
+
+        // TODO: use view start rows and viable rows, as well as viewed rows to decide
+        // which part of code needs to be compiled
+        return this._insertTextAtPosition('\n', cursorPosition)
+
+      default:
+        return this.getTextContent()
+    }
+
+  }
+
+  _insertTextAtPosition (text: string, position: Position): string {
+    let positionCharIndex = this._getCharIndexByPosition(position),
+        prevTextContent: string = this.getTextContent().slice(0, positionCharIndex),
+        afterTextContent: string = this.getTextContent().slice(positionCharIndex)
+
+    return prevTextContent + text + afterTextContent
+  }
+
+  _removeTextAtPosition (position: Position, direction: ?string = 'left'): string {
+    let positionCharIndex = this._getCharIndexByPosition(position),
+        prevTextContent: string = direction === 'left' ? this.getTextContent().slice(0, positionCharIndex - 1) : this.getTextContent().slice(0, positionCharIndex),
+        afterTextContent: string = direction === 'left' ? this.getTextContent().slice(positionCharIndex) : this.getTextContent().slice(positionCharIndex + 1)
+
+    return prevTextContent + afterTextContent
   }
 
   // _compileTextContent (): string {
@@ -636,8 +867,31 @@ class Lighditor {
   //   return contents.map((rowArray) => { return rowArray.join('') }).join('\n')
   // }
 
+  _getCharIndexByPosition (position: Position): number {
+    let row = position.row,
+        charCount = 0
+
+    for (; --row >= 0;) {
+      charCount += this._getTextContentByRow(row).length + 1
+    }
+
+    return charCount + position.column
+  }
+
+  _getTextContentByRow (row: number): string {
+    let rowNodes = this.editorElement.childNodes,
+        rowNode: ?Node = rowNodes[row]
+
+    if (rowNode) {
+      return rowNode.textContent
+    } else {
+      Lighditor.warn('Try to get row that not exist', row)
+      return ''
+    }
+  }
+
   /**
-   * Recursively goes up and get the row node from current node.
+   * Keep goes up and get the row node from current node.
    * Also calculate the row for given node
    */
   _getRowInfo (node: Node): ?RowInfo {
@@ -688,7 +942,11 @@ class Lighditor {
    */
   _isRowNode (node: Node): boolean {
     // return node.parentElement === this.editorElement
-    return node.dataset && node.dataset['lighditorType'] === 'row'
+    if (node instanceof HTMLElement) {
+      return node.dataset && node.dataset['lighditorType'] === 'row'
+    } else {
+      return false
+    }
   }
 
   _isBRElement (node: Node): boolean {
@@ -699,7 +957,12 @@ class Lighditor {
 
   _isNewLineElement (node: Node): boolean {
     // return this._isBRElement(node) || this._isRowNode(node)
-    return this._isRowNode(node)
+    // return this._isRowNode(node)
+    if (node instanceof HTMLElement) {
+      return node.dataset && node.dataset['lighditorType'] === 'newline'
+    } else {
+      return false
+    }
   }
 
   /**
@@ -735,14 +998,23 @@ class Lighditor {
       switch (positionType) {
         case 'START':
           node = currentSelection.anchorNode
+          // if (!(node instanceof Text)) {
+          //   node = node.childNodes[currentSelection.anchorOffset]
+          // }
           break;
 
         case 'END':
           node = currentSelection.focusNode
+          // if (!(node instanceof Text)) {
+          //   node = node.childNodes[currentSelection.focusOffset]
+          // }
           break;
 
         default:
           node = currentSelection.focusNode
+          // if (!(node instanceof Text)) {
+          //   node = node.childNodes[currentSelection.focusOffset]
+          // }
       }
 
       if (!node) {
@@ -792,6 +1064,20 @@ class Lighditor {
     return selection.start.row > selection.end.row || selection.start.column > selection.end.column
   }
 
+  _getTextContentByOffset (container: Node, offset: number): string {
+    let textContent: string = ''
+
+    if (!(container instanceof Text)) {
+      for (let i = 0; i < offset; i++) {
+        textContent += container.childNodes[i].textContent
+      }
+    } else {
+      textContent = container.toString().slice(0, offset)
+    }
+
+    return textContent
+  }
+
   /**
    * Update the selection state from user interaction
    */
@@ -808,29 +1094,33 @@ class Lighditor {
 
       if (selectionStartPosition && selectionEndPosition) {
 
-        let rangeStart: Position,
-            rangeEnd: Position,
+        let rangeStartColumn: number,
+            rangeEndColumn: number,
             range = currentSelection.getRangeAt(0)
+
+        // Find the text content length for range start and end offset
+        let rangeStartOffset: number = this._getTextContentByOffset(range.startContainer, range.startOffset).length,
+            rangeEndOffset: number = this._getTextContentByOffset(range.endContainer, range.endOffset).length
 
         if (this._isRangeReversed({
               start: selectionStartPosition,
               end: selectionEndPosition
             })) {
-          rangeStart = range.endOffset
-          rangeEnd = range.startOffset
+          rangeStartColumn = rangeEndOffset
+          rangeEndColumn = rangeStartOffset
         } else {
-          rangeStart = range.startOffset
-          rangeEnd = range.endOffset
+          rangeStartColumn = rangeStartOffset
+          rangeEndColumn = rangeEndOffset
         }
 
         this.setSelection({
           start: {
             row: selectionStartPosition.row,
-            column: selectionStartPosition.column + rangeStart
+            column: selectionStartPosition.column + rangeStartColumn
           },
           end: {
             row: selectionEndPosition.row,
-            column: selectionEndPosition.column + rangeEnd
+            column: selectionEndPosition.column + rangeEndColumn
           }
         })
       }
@@ -842,7 +1132,7 @@ class Lighditor {
 
   // Restore the saved selection and cursor position
   // REF: https://stackoverflow.com/questions/13949059/persisting-the-changes-of-range-objects-after-selection-in-html
-  _restoreSelection (): void {
+  _applySelection (): void {
     if (featureGetSelection && featureCreateRange) {
       let selection = this.editorState.selection
 
@@ -928,5 +1218,37 @@ class Lighditor {
   /***** Utils *****/
 
 }
+
+// Lighditor.util = {
+//   keycode: {
+//     ENTER: 13
+//   },
+
+//   getKeycode: (event: KeyboardEvent): number => {
+//     let keyCode = event.which
+
+//     // getting the key code from event
+//     if (null === keyCode) {
+//         keyCode = event.charCode !== null ? event.charCode : event.keyCode
+//     }
+
+//     return keyCode
+//   },
+
+//   *
+//    * Return true if the given key is a valid character input
+//    * Ref https://css-tricks.com/snippets/javascript/javascript-keycodes/
+
+//   isValidCharInput: (event: KeyboardEvent): boolean => {
+//     let key: number = Lighditor.util.getKeycode(event)
+
+//     return (48 <= key && key <= 57) // Numbers
+//       || (65 <= key && key <= 90) // a-z
+//       || (96 <= key && key <= 111) // Keypad
+//       || (186 <= key && key <= 192) // period
+//       || (219 <= key && key <= 222) // brakets
+//   }
+
+// }
 
 window.Lighditor = Lighditor

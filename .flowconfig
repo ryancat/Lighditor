@@ -10,3 +10,4 @@ module.file_ext=.scss
 module.file_ext=.js
 
 module.name_mapper='.*\.scss$' -> 'empty/object'
+unsafe.enable_getters_and_setters=true
