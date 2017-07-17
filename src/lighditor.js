@@ -24,7 +24,6 @@ type LighditorConfig = {
   initTextContent: string,
   viewStartRow: number,
   viewableRows: number
-  // shouldRender: ?(editorState: LighditorState, oldEditorState: ?LighditorState) => boolean
 }
 
 type LighditorProps = {
@@ -109,10 +108,6 @@ class Lighditor {
     this.element = element
     this.editorConfig = config
 
-    // if (config.shouldRender) {
-    //   this.shouldRender = config.shouldRender
-    // }
-
     // Error checks
     if (typeof this.element === 'undefined') {
       throw new Error('Missing element for editor')
@@ -130,17 +125,12 @@ class Lighditor {
     // Setup placeholder or init text
     this.setTextContent(this.editorConfig.initTextContent)
 
+    // Make sure the paragraph separators are all <div>s
+    document.execCommand("DefaultParagraphSeparator", false, "div");
+
     // For debugging
     Lighditor.debug(() => { window.lighditor = this })
 
-    // this.resetRender()
-    // this.build()
-    // this.listen()
-    // @attachListeners()
-    //
-
-    // Decorate prototype
-    // this.render = lighditorUtil.debounce(this.render.bind(this))
   }
 
   // Create a instance of Lighditor class
@@ -341,8 +331,8 @@ class Lighditor {
 
       textContentRows.forEach((textContentRow, row) => {
         let newLineHTML = row !== numOfRows - 1 ? '<br class="' + EditorClass.EDITOR_NEWLINE + '" data-lighditor-type="newline">' : ''
-        // let newLineHTML = ''
         html += '<div class="' + EditorClass.EDITOR_ROW + '" data-lighditor-type="row">' + textContentRow + newLineHTML + '</div>'
+        // html += '<div class="' + EditorClass.EDITOR_ROW + '" data-lighditor-type="row">' + textContentRow + '</div>'
       })
 
       this.editorElement.innerHTML = html
@@ -350,12 +340,6 @@ class Lighditor {
 
     // Attach the current selection/cursor
     this._applySelection()
-  }
-
-  _renderParsed (): void {
-
-    // if (this.parser)
-
   }
 
   _resetRender (): void {
@@ -372,21 +356,6 @@ class Lighditor {
     })
   }
 
-  _shouldRenderTextContent (editorState: LighditorState, oldEditorState: ?LighditorState): boolean {
-    // if (oldEditorState) {
-    //   return editorState.textContent !== oldEditorState.textContent
-    // }
-    // else {
-    //   return true
-    // }
-
-    return !oldEditorState || editorState.textContent !== oldEditorState.textContent
-  }
-
-  _shouldRenderSelection (editorState: LighditorState, oldEditorState: ?LighditorState): boolean {
-    return !oldEditorState || editorState.selection !== oldEditorState.selection
-  }
-
   _setEditorState (editorState: LighditorState): void {
     Lighditor.log('set editor state: ', editorState)
 
@@ -397,15 +366,6 @@ class Lighditor {
     }
 
     this._render(!oldEditorState || this.editorState.textContent !== oldEditorState.textContent)
-
-    // TODO: Considering use virtual dom to render editor
-    // if (this._shouldRenderTextContent(this.editorState, oldEditorState)) {
-    //   this._renderTextConent()
-    // }
-
-    // if (this._shouldRenderSelection(this.editorState, oldEditorState)) {
-    //   this._applySelection()
-    // }
   }
 
   /***** Events *****/
@@ -476,45 +436,21 @@ class Lighditor {
       })
 
       // Manually set text content
-      this.setTextContent(this._removeTextAtPosition(cursorPosition))
+      let selection: Selection = this.getSelection()
+      if (selection) {
+        if (selection.start.column === selection.end.column
+          && selection.start.row === selection.end.row) {
+          // We have no range selection, only remove text at cursor position
+          this.setTextContent(this._removeTextAtPosition(cursorPosition))
+        }
+        else {
+          // We need to remove all selecited text
+          this.setTextContent(this._removeTextInSelection(selection))
+        }
+      } else {
+        this.setTextContent(this._removeTextAtPosition(cursorPosition))
+      }
     }
-
-    // switch (Lighditor.util.getKeycode(evt)) {
-    //   case Lighditor.util.keycode.ENTER:
-    //     event.preventDefault()
-
-    //     // When hit enter key, a new line will generated and the rest of the current
-    //     // line will be moved to the new line
-    //     // let newLineFragment = document.createDocumentFragment()
-
-    //     // TODO: use view start rows and viable rows, as well as viewed rows to decide
-    //     // which part of code needs to be compiled
-    //     let cursorPosition: Position = this.getCursorPosition()
-    //     this.setTextContent(this._insertTextAtPosition('\n', cursorPosition))
-
-    //     // Update the selection state to the new line
-    //     this.setSelection({
-    //       start: {
-    //         row: cursorPosition.row + 1,
-    //         column: 0
-    //       },
-    //       end: {
-    //         row: cursorPosition.row + 1,
-    //         column: 0
-    //       }
-    //     })
-
-    //   default:
-    //     break
-    // }
-
-    // this._process
-    // this.setTextContent(this._compileKeydown(evt, this.getCursorPosition()))
-    // let oldTextContent: string = this.getTextContent(),
-    //     newTextContent: string = this._compileKeydown(evt, this.getCursorPosition())
-
-    // if (newTextContent !== oldTextContent) {
-    // }
   }
 
   _handleKeyup (evt: KeyboardEvent) {
@@ -527,22 +463,8 @@ class Lighditor {
     // // TODO: update selection if arrow key is up
     this._updateSelection()
 
-    // evt.preventDefault()
-    // // TODO: We may not need to update the whole editor text content
-    // // but only the section that is actually changed
-    // // this.saveSelection()
-    // if (Lighditor.util.isValidCharInput(evt)) {
-    //   // let textContent: string = this._compileTextContent()
-    //   this.setTextContent(this._compileTextContent())
-    // }
-
     this.setTextContent(this._compileTextContent())
-    // // this._applySelection()
   }
-
-  // _handlePaste (evt: KeyboardEvent) {
-  //   Lighditor.log('_handlePaste', evt)
-  // }
 
   _handleMouseup (evt: MouseEvent) {
     this._updateSelection()
@@ -634,33 +556,6 @@ class Lighditor {
   }
 
   /**
-   * Traverse the raw dirty HTML in editor with DFS, which makes sure
-   * we are traversing from the beginning to the end of lines
-   */
-  _dfsTraverseRawNode (callback: (node: Node) => ?boolean): void {
-    let nodeStack = [this.editorElement],
-        node: ?Node
-        // When there are <br> element in row, we need to add extra row
-        // extraRowCount: number = 0
-
-    while (node = nodeStack.pop()) {
-
-      if (callback(node)) {
-        break
-      }
-
-      if (node.childNodes && node.childNodes.length) {
-        let childNodes = node.childNodes
-        let childIndex: number = childNodes.length
-
-        while (childIndex--) {
-          nodeStack.push(childNodes[childIndex])
-        }
-      }
-    }
-  }
-
-  /**
    * Get the text from the actual contents, including new lines
    *
    * When hitting new line (enter key):
@@ -668,130 +563,22 @@ class Lighditor {
    * 2. firefox will keep the two piece of string in the same row and add a 'br' element
    */
   _compileTextContent (): string {
-    let contents: string = ''
+    let contents: string = '',
+        newlineQueue: string[] = []
 
-    this._dfsTraverseRawNode((node: Node) => {
-      // console.log('Traverse node', node)
-
-      // if (this._isRowNode(node)) {
-      //   // Warn if current row has content already. By DFS we are guaranteed
-      //   // the row element is ran againast with first
-      //   if (typeof contents[row] !== 'undefined') {
-      //     Lighditor.warn('Row ' + row + ' has rendered')
-      //   }
-
-      //   // Make sure each row has a new line
-      //   contents[row] = []
-      // }
-
+    this._dfsTraverseNode((node: Node) => {
       if (node instanceof Text) {
-        // let rowContent = contents[row]
-
-        // /** Error checks **/
-
-        // // Warn if we have empty positions
-        // if (column > 0 && typeof rowContent[column - 1] === 'undefined') {
-        //   console.warn('Row ' + row + ' has unassigned character at column ' + (column - 1))
-        //   // Need to make up all unassigned position with space key
-        //   let col = column
-        //   while (typeof rowContent[col - 1] === 'undefined') {
-        //     rowContent[col - 1] = ' '
-        //     col--
-        //   }
-
-        //   // TODO: Should we return true and stop traversal?
-        // }
-
-        // // Warn if we already have character at column position
-        // if (rowContent.length > column) {
-        //   console.error('Row ' + row + ' has exist character at column ' + column)
-        //   return true
-        // }
-
-        // /** Error checks end **/
-
-        // // Copy nodeText to row content
-        // let nodeText = node.textContent
-        // for (let i = column; i < nodeText.length; i++) {
-        //   rowContent[i] = nodeText[i - column]
-        // }
-
         contents += node.textContent
       }
 
-      if (this._isNewLineElement(node)) {
-        contents += '\n'
+      if (this._isRowNode(node)) {
+        contents += newlineQueue.pop() || ''
+        newlineQueue.push('\n')
       }
 
     })
 
-    // console.log('content: ', contents)
-    // console.log('------------------ Traverse node finished ------------------')
-
-    // Try some crazy regexp way
-    // let tempElement: HTMLElement = document.createElement('div')
-
-    // tempElement.innerHTML = this.editorElement.innerHTML
-    //   .replace(/<(div|p|br)[^<]*?>/g, '&lt;br /&gt;')
-    //   .replace(/<([(i|a|b|u)^>]+)>(.*?)<\/\1>/gim,
-    //     function(v) { return '' + window.escape(v) + ''; })
-
-    // contents = tempElement.textContent
-
-    // function extractTextWithWhitespace( elems ) {
-    //     var ret = "", elem;
-
-    //     for ( var i = 0; elems[i]; i++ ) {
-    //         elem = elems[i];
-
-    //         // Get the text from text nodes and CDATA nodes
-    //         if ( elem.nodeType === 3 || elem.nodeType === 4 ) {
-    //             ret += elem.nodeValue + "\n";
-
-    //         // Traverse everything else, except comment nodes
-    //         } else if ( elem.nodeType !== 8 ) {
-    //             ret += extractTextWithWhitespace( elem.childNodes );
-    //         }
-    //     }
-
-    //     return ret;
-    // }
-
-    // contents = extractTextWithWhitespace([this.editorElement])
-
-    // contents = this.editorElement.innerText
-
-    // dirtyHTML = this.editorElement.innerHTML
-
-    // contents = this.editorElement.innerHTML
-    //   .replace(/\<br/g, '\n')
-    //   .replace(/\<[^>]*\>/g, '')
     return contents
-  }
-
-  /**
-   * compile happens when keydown. Manually translate the keyboard input
-   * to actual text content
-   */
-  _compileKeydown (event: KeyboardEvent, cursorPosition: Position): string {
-    Lighditor.log('compile', arguments)
-
-    switch (Lighditor.util.getKeycode(event)) {
-      case Lighditor.util.keycode.ENTER:
-        event.preventDefault()
-
-        // When hit enter key, a new line will generated and the rest of the current
-        // line will be moved to the new line
-        // let newLineFragment = document.createDocumentFragment()
-
-        // TODO: use view start rows and viable rows, as well as viewed rows to decide
-        // which part of code needs to be compiled
-        return this._insertTextAtPosition('\n', cursorPosition)
-
-      default:
-        return this.getTextContent()
-    }
-
   }
 
   _insertTextAtPosition (text: string, position: Position): string {
@@ -810,62 +597,14 @@ class Lighditor {
     return prevTextContent + afterTextContent
   }
 
-  // _compileTextContent (): string {
-  //   let contents: string = ''
+  _removeTextInSelection (selection: Selection): string {
+    let startPositionCharIndex: number = this._getCharIndexByPosition(selection.start),
+        endPositionCharIndex: number = this._getCharIndexByPosition(selection.end),
+        prevTextContent: string = this.getTextContent().slice(0, startPositionCharIndex),
+        afterTextContent: string = this.getTextContent().slice(endPositionCharIndex)
 
-  //   this._dfsTraverseNode((node: Node, row: number, column: number) => {
-  //     console.log('Traverse node', node, row, column)
-
-  //     if (this._isRowNode(node) || this._isBRElement(node)) {
-  //       // Warn if current row has content already. By DFS we are guaranteed
-  //       // the row element is ran againast with first
-  //       if (typeof contents[row] !== 'undefined') {
-  //         Lighditor.warn('Row ' + row + ' has rendered')
-  //       }
-
-  //       // Make sure each row has a new line
-  //       contents[row] = []
-  //     }
-
-  //     if (node instanceof Text) {
-  //       let rowContent = contents[row]
-
-  //       /** Error checks **/
-
-  //       // Warn if we have empty positions
-  //       if (column > 0 && typeof rowContent[column - 1] === 'undefined') {
-  //         console.warn('Row ' + row + ' has unassigned character at column ' + (column - 1))
-  //         // Need to make up all unassigned position with space key
-  //         let col = column
-  //         while (typeof rowContent[col - 1] === 'undefined') {
-  //           rowContent[col - 1] = ' '
-  //           col--
-  //         }
-
-  //         // TODO: Should we return true and stop traversal?
-  //       }
-
-  //       // Warn if we already have character at column position
-  //       if (rowContent.length > column) {
-  //         console.error('Row ' + row + ' has exist character at column ' + column)
-  //         return true
-  //       }
-
-  //       /** Error checks end **/
-
-  //       // Copy nodeText to row content
-  //       let nodeText = node.textContent
-  //       for (let i = column; i < nodeText.length; i++) {
-  //         rowContent[i] = nodeText[i - column]
-  //       }
-  //     }
-  //   })
-
-  //   console.log('content: ', contents.map((rowArray) => { return rowArray.join('\n') }))
-  //   console.log('------------------ Traverse node finished ------------------')
-
-  //   return contents.map((rowArray) => { return rowArray.join('') }).join('\n')
-  // }
+    return prevTextContent + afterTextContent
+  }
 
   _getCharIndexByPosition (position: Position): number {
     let row = position.row,
@@ -965,27 +704,11 @@ class Lighditor {
     }
   }
 
-  /**
-   * A new line row node is a node that has only <br>s
-   */
-  // _isNewLineRow (node: Node): boolean{
-  //   let hasOnlyBrNode = false
-
-  //   if (node.childNodes && node.childNodes.length) {
-
-  //   }
-
-  //   if (node.textContent === '' && )
-  // }
-
-
   /***** Queue phase *****/
 
   /***** Render phase *****/
 
   /***** Parse phase *****/
-
-
 
   /***** Editor utils *****/
 
@@ -1072,7 +795,7 @@ class Lighditor {
         textContent += container.childNodes[i].textContent
       }
     } else {
-      textContent = container.toString().slice(0, offset)
+      textContent = container.textContent.slice(0, offset)
     }
 
     return textContent
@@ -1214,41 +937,6 @@ class Lighditor {
       sel.addRange(range)
     }
   }
-
-  /***** Utils *****/
-
 }
-
-// Lighditor.util = {
-//   keycode: {
-//     ENTER: 13
-//   },
-
-//   getKeycode: (event: KeyboardEvent): number => {
-//     let keyCode = event.which
-
-//     // getting the key code from event
-//     if (null === keyCode) {
-//         keyCode = event.charCode !== null ? event.charCode : event.keyCode
-//     }
-
-//     return keyCode
-//   },
-
-//   *
-//    * Return true if the given key is a valid character input
-//    * Ref https://css-tricks.com/snippets/javascript/javascript-keycodes/
-
-//   isValidCharInput: (event: KeyboardEvent): boolean => {
-//     let key: number = Lighditor.util.getKeycode(event)
-
-//     return (48 <= key && key <= 57) // Numbers
-//       || (65 <= key && key <= 90) // a-z
-//       || (96 <= key && key <= 111) // Keypad
-//       || (186 <= key && key <= 192) // period
-//       || (219 <= key && key <= 222) // brakets
-//   }
-
-// }
 
 window.Lighditor = Lighditor

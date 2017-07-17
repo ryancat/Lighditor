@@ -119,7 +119,6 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
   initTextContent: string,
   viewStartRow: number,
   viewableRows: number
-  // shouldRender: ?(editorState: LighditorState, oldEditorState: ?LighditorState) => boolean
 }*/
 /*:: type LighditorProps = {
   element: HTMLElement,
@@ -202,10 +201,6 @@ var Lighditor = function () {
     this.element = element;
     this.editorConfig = config;
 
-    // if (config.shouldRender) {
-    //   this.shouldRender = config.shouldRender
-    // }
-
     // Error checks
     if (typeof this.element === 'undefined') {
       throw new Error('Missing element for editor');
@@ -223,19 +218,13 @@ var Lighditor = function () {
     // Setup placeholder or init text
     this.setTextContent(this.editorConfig.initTextContent);
 
+    // Make sure the paragraph separators are all <div>s
+    document.execCommand("DefaultParagraphSeparator", false, "div");
+
     // For debugging
     Lighditor.debug(function () {
       window.lighditor = _this;
     });
-
-    // this.resetRender()
-    // this.build()
-    // this.listen()
-    // @attachListeners()
-    //
-
-    // Decorate prototype
-    // this.render = lighditorUtil.debounce(this.render.bind(this))
   }
 
   // Create a instance of Lighditor class
@@ -357,8 +346,8 @@ var Lighditor = function () {
 
         textContentRows.forEach(function (textContentRow, row) {
           var newLineHTML = row !== numOfRows - 1 ? '<br class="' + EditorClass.EDITOR_NEWLINE + '" data-lighditor-type="newline">' : '';
-          // let newLineHTML = ''
           html += '<div class="' + EditorClass.EDITOR_ROW + '" data-lighditor-type="row">' + textContentRow + newLineHTML + '</div>';
+          // html += '<div class="' + EditorClass.EDITOR_ROW + '" data-lighditor-type="row">' + textContentRow + '</div>'
         });
 
         this.editorElement.innerHTML = html;
@@ -366,13 +355,6 @@ var Lighditor = function () {
 
       // Attach the current selection/cursor
       this._applySelection();
-    }
-  }, {
-    key: '_renderParsed',
-    value: function _renderParsed() /*: void*/ {
-
-      // if (this.parser)
-
     }
   }, {
     key: '_resetRender',
@@ -390,23 +372,6 @@ var Lighditor = function () {
       });
     }
   }, {
-    key: '_shouldRenderTextContent',
-    value: function _shouldRenderTextContent(editorState /*: LighditorState*/, oldEditorState /*: ?LighditorState*/) /*: boolean*/ {
-      // if (oldEditorState) {
-      //   return editorState.textContent !== oldEditorState.textContent
-      // }
-      // else {
-      //   return true
-      // }
-
-      return !oldEditorState || editorState.textContent !== oldEditorState.textContent;
-    }
-  }, {
-    key: '_shouldRenderSelection',
-    value: function _shouldRenderSelection(editorState /*: LighditorState*/, oldEditorState /*: ?LighditorState*/) /*: boolean*/ {
-      return !oldEditorState || editorState.selection !== oldEditorState.selection;
-    }
-  }, {
     key: '_setEditorState',
     value: function _setEditorState(editorState /*: LighditorState*/) /*: void*/ {
       Lighditor.log('set editor state: ', editorState);
@@ -416,15 +381,6 @@ var Lighditor = function () {
       this.editorState = _extends({}, editorState);
 
       this._render(!oldEditorState || this.editorState.textContent !== oldEditorState.textContent);
-
-      // TODO: Considering use virtual dom to render editor
-      // if (this._shouldRenderTextContent(this.editorState, oldEditorState)) {
-      //   this._renderTextConent()
-      // }
-
-      // if (this._shouldRenderSelection(this.editorState, oldEditorState)) {
-      //   this._applySelection()
-      // }
     }
 
     /***** Events *****/
@@ -500,45 +456,19 @@ var Lighditor = function () {
         });
 
         // Manually set text content
-        this.setTextContent(this._removeTextAtPosition(cursorPosition));
+        var _selection /*: Selection*/ = this.getSelection();
+        if (_selection) {
+          if (_selection.start.column === _selection.end.column && _selection.start.row === _selection.end.row) {
+            // We have no range selection, only remove text at cursor position
+            this.setTextContent(this._removeTextAtPosition(cursorPosition));
+          } else {
+            // We need to remove all selecited text
+            this.setTextContent(this._removeTextInSelection(_selection));
+          }
+        } else {
+          this.setTextContent(this._removeTextAtPosition(cursorPosition));
+        }
       }
-
-      // switch (Lighditor.util.getKeycode(evt)) {
-      //   case Lighditor.util.keycode.ENTER:
-      //     event.preventDefault()
-
-      //     // When hit enter key, a new line will generated and the rest of the current
-      //     // line will be moved to the new line
-      //     // let newLineFragment = document.createDocumentFragment()
-
-      //     // TODO: use view start rows and viable rows, as well as viewed rows to decide
-      //     // which part of code needs to be compiled
-      //     let cursorPosition: Position = this.getCursorPosition()
-      //     this.setTextContent(this._insertTextAtPosition('\n', cursorPosition))
-
-      //     // Update the selection state to the new line
-      //     this.setSelection({
-      //       start: {
-      //         row: cursorPosition.row + 1,
-      //         column: 0
-      //       },
-      //       end: {
-      //         row: cursorPosition.row + 1,
-      //         column: 0
-      //       }
-      //     })
-
-      //   default:
-      //     break
-      // }
-
-      // this._process
-      // this.setTextContent(this._compileKeydown(evt, this.getCursorPosition()))
-      // let oldTextContent: string = this.getTextContent(),
-      //     newTextContent: string = this._compileKeydown(evt, this.getCursorPosition())
-
-      // if (newTextContent !== oldTextContent) {
-      // }
     }
   }, {
     key: '_handleKeyup',
@@ -552,23 +482,8 @@ var Lighditor = function () {
       // // TODO: update selection if arrow key is up
       this._updateSelection();
 
-      // evt.preventDefault()
-      // // TODO: We may not need to update the whole editor text content
-      // // but only the section that is actually changed
-      // // this.saveSelection()
-      // if (Lighditor.util.isValidCharInput(evt)) {
-      //   // let textContent: string = this._compileTextContent()
-      //   this.setTextContent(this._compileTextContent())
-      // }
-
       this.setTextContent(this._compileTextContent());
-      // // this._applySelection()
     }
-
-    // _handlePaste (evt: KeyboardEvent) {
-    //   Lighditor.log('_handlePaste', evt)
-    // }
-
   }, {
     key: '_handleMouseup',
     value: function _handleMouseup(evt /*: MouseEvent*/) {
@@ -669,36 +584,6 @@ var Lighditor = function () {
     }
 
     /**
-     * Traverse the raw dirty HTML in editor with DFS, which makes sure
-     * we are traversing from the beginning to the end of lines
-     */
-
-  }, {
-    key: '_dfsTraverseRawNode',
-    value: function _dfsTraverseRawNode(callback /*: (node: Node) => ?boolean*/) /*: void*/ {
-      var nodeStack = [this.editorElement],
-          node /*: ?Node*/ = void 0;
-      // When there are <br> element in row, we need to add extra row
-      // extraRowCount: number = 0
-
-      while (node = nodeStack.pop()) {
-
-        if (callback(node)) {
-          break;
-        }
-
-        if (node.childNodes && node.childNodes.length) {
-          var childNodes = node.childNodes;
-          var childIndex /*: number*/ = childNodes.length;
-
-          while (childIndex--) {
-            nodeStack.push(childNodes[childIndex]);
-          }
-        }
-      }
-    }
-
-    /**
      * Get the text from the actual contents, including new lines
      *
      * When hitting new line (enter key):
@@ -711,131 +596,21 @@ var Lighditor = function () {
     value: function _compileTextContent() /*: string*/ {
       var _this2 = this;
 
-      var contents /*: string*/ = '';
+      var contents /*: string*/ = '',
+          newlineQueue /*: string[]*/ = [];
 
-      this._dfsTraverseRawNode(function (node /*: Node*/) {
-        // console.log('Traverse node', node)
-
-        // if (this._isRowNode(node)) {
-        //   // Warn if current row has content already. By DFS we are guaranteed
-        //   // the row element is ran againast with first
-        //   if (typeof contents[row] !== 'undefined') {
-        //     Lighditor.warn('Row ' + row + ' has rendered')
-        //   }
-
-        //   // Make sure each row has a new line
-        //   contents[row] = []
-        // }
-
+      this._dfsTraverseNode(function (node /*: Node*/) {
         if (node instanceof Text) {
-          // let rowContent = contents[row]
-
-          // /** Error checks **/
-
-          // // Warn if we have empty positions
-          // if (column > 0 && typeof rowContent[column - 1] === 'undefined') {
-          //   console.warn('Row ' + row + ' has unassigned character at column ' + (column - 1))
-          //   // Need to make up all unassigned position with space key
-          //   let col = column
-          //   while (typeof rowContent[col - 1] === 'undefined') {
-          //     rowContent[col - 1] = ' '
-          //     col--
-          //   }
-
-          //   // TODO: Should we return true and stop traversal?
-          // }
-
-          // // Warn if we already have character at column position
-          // if (rowContent.length > column) {
-          //   console.error('Row ' + row + ' has exist character at column ' + column)
-          //   return true
-          // }
-
-          // /** Error checks end **/
-
-          // // Copy nodeText to row content
-          // let nodeText = node.textContent
-          // for (let i = column; i < nodeText.length; i++) {
-          //   rowContent[i] = nodeText[i - column]
-          // }
-
           contents += node.textContent;
         }
 
-        if (_this2._isNewLineElement(node)) {
-          contents += '\n';
+        if (_this2._isRowNode(node)) {
+          contents += newlineQueue.pop() || '';
+          newlineQueue.push('\n');
         }
       });
 
-      // console.log('content: ', contents)
-      // console.log('------------------ Traverse node finished ------------------')
-
-      // Try some crazy regexp way
-      // let tempElement: HTMLElement = document.createElement('div')
-
-      // tempElement.innerHTML = this.editorElement.innerHTML
-      //   .replace(/<(div|p|br)[^<]*?>/g, '&lt;br /&gt;')
-      //   .replace(/<([(i|a|b|u)^>]+)>(.*?)<\/\1>/gim,
-      //     function(v) { return '' + window.escape(v) + ''; })
-
-      // contents = tempElement.textContent
-
-      // function extractTextWithWhitespace( elems ) {
-      //     var ret = "", elem;
-
-      //     for ( var i = 0; elems[i]; i++ ) {
-      //         elem = elems[i];
-
-      //         // Get the text from text nodes and CDATA nodes
-      //         if ( elem.nodeType === 3 || elem.nodeType === 4 ) {
-      //             ret += elem.nodeValue + "\n";
-
-      //         // Traverse everything else, except comment nodes
-      //         } else if ( elem.nodeType !== 8 ) {
-      //             ret += extractTextWithWhitespace( elem.childNodes );
-      //         }
-      //     }
-
-      //     return ret;
-      // }
-
-      // contents = extractTextWithWhitespace([this.editorElement])
-
-      // contents = this.editorElement.innerText
-
-      // dirtyHTML = this.editorElement.innerHTML
-
-      // contents = this.editorElement.innerHTML
-      //   .replace(/\<br/g, '\n')
-      //   .replace(/\<[^>]*\>/g, '')
       return contents;
-    }
-
-    /**
-     * compile happens when keydown. Manually translate the keyboard input
-     * to actual text content
-     */
-
-  }, {
-    key: '_compileKeydown',
-    value: function _compileKeydown(event /*: KeyboardEvent*/, cursorPosition /*: Position*/) /*: string*/ {
-      Lighditor.log('compile', arguments);
-
-      switch (Lighditor.util.getKeycode(event)) {
-        case Lighditor.util.keycode.ENTER:
-          event.preventDefault();
-
-          // When hit enter key, a new line will generated and the rest of the current
-          // line will be moved to the new line
-          // let newLineFragment = document.createDocumentFragment()
-
-          // TODO: use view start rows and viable rows, as well as viewed rows to decide
-          // which part of code needs to be compiled
-          return this._insertTextAtPosition('\n', cursorPosition);
-
-        default:
-          return this.getTextContent();
-      }
     }
   }, {
     key: '_insertTextAtPosition',
@@ -857,64 +632,16 @@ var Lighditor = function () {
 
       return prevTextContent + afterTextContent;
     }
+  }, {
+    key: '_removeTextInSelection',
+    value: function _removeTextInSelection(selection /*: Selection*/) /*: string*/ {
+      var startPositionCharIndex /*: number*/ = this._getCharIndexByPosition(selection.start),
+          endPositionCharIndex /*: number*/ = this._getCharIndexByPosition(selection.end),
+          prevTextContent /*: string*/ = this.getTextContent().slice(0, startPositionCharIndex),
+          afterTextContent /*: string*/ = this.getTextContent().slice(endPositionCharIndex);
 
-    // _compileTextContent (): string {
-    //   let contents: string = ''
-
-    //   this._dfsTraverseNode((node: Node, row: number, column: number) => {
-    //     console.log('Traverse node', node, row, column)
-
-    //     if (this._isRowNode(node) || this._isBRElement(node)) {
-    //       // Warn if current row has content already. By DFS we are guaranteed
-    //       // the row element is ran againast with first
-    //       if (typeof contents[row] !== 'undefined') {
-    //         Lighditor.warn('Row ' + row + ' has rendered')
-    //       }
-
-    //       // Make sure each row has a new line
-    //       contents[row] = []
-    //     }
-
-    //     if (node instanceof Text) {
-    //       let rowContent = contents[row]
-
-    //       /** Error checks **/
-
-    //       // Warn if we have empty positions
-    //       if (column > 0 && typeof rowContent[column - 1] === 'undefined') {
-    //         console.warn('Row ' + row + ' has unassigned character at column ' + (column - 1))
-    //         // Need to make up all unassigned position with space key
-    //         let col = column
-    //         while (typeof rowContent[col - 1] === 'undefined') {
-    //           rowContent[col - 1] = ' '
-    //           col--
-    //         }
-
-    //         // TODO: Should we return true and stop traversal?
-    //       }
-
-    //       // Warn if we already have character at column position
-    //       if (rowContent.length > column) {
-    //         console.error('Row ' + row + ' has exist character at column ' + column)
-    //         return true
-    //       }
-
-    //       /** Error checks end **/
-
-    //       // Copy nodeText to row content
-    //       let nodeText = node.textContent
-    //       for (let i = column; i < nodeText.length; i++) {
-    //         rowContent[i] = nodeText[i - column]
-    //       }
-    //     }
-    //   })
-
-    //   console.log('content: ', contents.map((rowArray) => { return rowArray.join('\n') }))
-    //   console.log('------------------ Traverse node finished ------------------')
-
-    //   return contents.map((rowArray) => { return rowArray.join('') }).join('\n')
-    // }
-
+      return prevTextContent + afterTextContent;
+    }
   }, {
     key: '_getCharIndexByPosition',
     value: function _getCharIndexByPosition(position /*: Position*/) /*: number*/ {
@@ -1028,20 +755,6 @@ var Lighditor = function () {
       }
     }
 
-    /**
-     * A new line row node is a node that has only <br>s
-     */
-    // _isNewLineRow (node: Node): boolean{
-    //   let hasOnlyBrNode = false
-
-    //   if (node.childNodes && node.childNodes.length) {
-
-    //   }
-
-    //   if (node.textContent === '' && )
-    // }
-
-
     /***** Queue phase *****/
 
     /***** Render phase *****/
@@ -1145,7 +858,7 @@ var Lighditor = function () {
           textContent += container.childNodes[i].textContent;
         }
       } else {
-        textContent = container.toString().slice(0, offset);
+        textContent = container.textContent.slice(0, offset);
       }
 
       return textContent;
@@ -1234,9 +947,9 @@ var Lighditor = function () {
           return side;
         };
 
-        var _selection = this.editorState.selection;
+        var _selection2 = this.editorState.selection;
 
-        if (!_selection) {
+        if (!_selection2) {
           return;
         }
 
@@ -1244,12 +957,12 @@ var Lighditor = function () {
             rangeStart /*: Position*/ = void 0,
             rangeEnd /*: Position*/ = void 0;
 
-        if (this._isRangeReversed(_selection)) {
-          rangeStart = _selection.end;
-          rangeEnd = _selection.start;
+        if (this._isRangeReversed(_selection2)) {
+          rangeStart = _selection2.end;
+          rangeEnd = _selection2.start;
         } else {
-          rangeStart = _selection.start;
-          rangeEnd = _selection.end;
+          rangeStart = _selection2.start;
+          rangeEnd = _selection2.end;
         }
 
         var rangeStartRowElement = this._getRowElementByIndex(rangeStart.row),
@@ -1293,9 +1006,6 @@ var Lighditor = function () {
         sel.addRange(range);
       }
     }
-
-    /***** Utils *****/
-
   }], [{
     key: 'create',
     value: function create(element /*: HTMLElement*/, config /*: ?LighditorConfig*/) {
@@ -1416,38 +1126,6 @@ var Lighditor = function () {
 
   return Lighditor;
 }();
-
-// Lighditor.util = {
-//   keycode: {
-//     ENTER: 13
-//   },
-
-//   getKeycode: (event: KeyboardEvent): number => {
-//     let keyCode = event.which
-
-//     // getting the key code from event
-//     if (null === keyCode) {
-//         keyCode = event.charCode !== null ? event.charCode : event.keyCode
-//     }
-
-//     return keyCode
-//   },
-
-//   *
-//    * Return true if the given key is a valid character input
-//    * Ref https://css-tricks.com/snippets/javascript/javascript-keycodes/
-
-//   isValidCharInput: (event: KeyboardEvent): boolean => {
-//     let key: number = Lighditor.util.getKeycode(event)
-
-//     return (48 <= key && key <= 57) // Numbers
-//       || (65 <= key && key <= 90) // a-z
-//       || (96 <= key && key <= 111) // Keypad
-//       || (186 <= key && key <= 192) // period
-//       || (219 <= key && key <= 222) // brakets
-//   }
-
-// }
 
 window.Lighditor = Lighditor;
 
