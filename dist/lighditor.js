@@ -435,10 +435,10 @@ var Lighditor = function () {
       }
 
       // Manually set text content
-      if (Lighditor.util.getKeycode(evt) === Lighditor.util.keycode.BACKSPACE && this._isCaretSelection(this.getSelection()) && cursorPosition.column === 0) {
+      if (Lighditor.util.getKeycode(evt) === Lighditor.util.keycode.BACKSPACE && this._isCaretSelection(this.getSelection()) && cursorPosition.column === 0 && cursorPosition.row > 0) {
         // When the selection is a cursor, and user hits backspace key at the
         // beginning of a row, Chrome will remove the new line element at the
-        // previous row. Let's add it back
+        // previous row if there is one. Let's add it back
         evt.preventDefault();
 
         // Update the selection state to the prev line
@@ -587,7 +587,7 @@ var Lighditor = function () {
       var _this2 = this;
 
       var contents /*: string*/ = '',
-          newlineQueue /*: string[]*/ = [];
+          isNewlineDirty /*: boolean*/ = false;
 
       this._dfsTraverseNode(function (node /*: Node*/) {
         if (node instanceof Text) {
@@ -595,8 +595,8 @@ var Lighditor = function () {
         }
 
         if (_this2._isRowNode(node)) {
-          contents += newlineQueue.pop() || '';
-          newlineQueue.push('\n');
+          contents += isNewlineDirty ? '\n' : '';
+          isNewlineDirty = true;
         }
       });
 
@@ -665,19 +665,20 @@ var Lighditor = function () {
 
   }, {
     key: '_getRowInfo',
-    value: function _getRowInfo(node /*: Node*/) /*: ?RowInfo*/ {
+    value: function _getRowInfo(node /*: ?Node*/) /*: ?RowInfo*/ {
       var currentNode = node;
 
       while (currentNode && currentNode !== this.editorElement) {
-        if (this._isRowNode(currentNode)) {
+        if (currentNode instanceof HTMLElement && currentNode.dataset['lighditorType'] === 'row') {
           // Found nearest row container
           var rowCount = 0;
           var n = currentNode;
+          var parentNodeInfo = this._getRowInfo(currentNode.parentElement);
           for (; n = n.previousSibling; rowCount++) {}
 
           return {
             container: currentNode,
-            row: rowCount
+            row: rowCount + (parentNodeInfo ? parentNodeInfo.row : 0)
           };
         }
 
@@ -711,6 +712,19 @@ var Lighditor = function () {
         return null;
       }
     }
+  }, {
+    key: '_areAllNodes',
+    value: function _areAllNodes(nodes /*: NodeList<Node>*/, callback /*: (node: Node) => boolean*/) /*: boolean*/ {
+      var result = true,
+          i /*: number*/ = 0,
+          count /*: number*/ = nodes.length;
+
+      for (; i < count; i++) {
+        result = result && callback(nodes[i]);
+      }
+
+      return result;
+    }
 
     /**
      * Return true if the given node should be represented as a single row
@@ -719,9 +733,13 @@ var Lighditor = function () {
   }, {
     key: '_isRowNode',
     value: function _isRowNode(node /*: Node*/) /*: boolean*/ {
+      var _this3 = this;
+
       // return node.parentElement === this.editorElement
       if (node instanceof HTMLElement) {
-        return node.dataset && node.dataset['lighditorType'] === 'row';
+        return node.dataset && node.dataset['lighditorType'] === 'row' && this._areAllNodes(node.childNodes, function (n) {
+          return !_this3._isRowNode(n);
+        });
       } else {
         return false;
       }
@@ -765,35 +783,35 @@ var Lighditor = function () {
     value: function _getSelectionNodePosition(positionType /*: PositionTypeEnum*/) /*: ?Position*/ {
       if (featureGetSelection && featureCreateRange) {
         var currentSelection = window.getSelection();
-        var node /*: HTMLElement | Text*/ = void 0;
+        var _node /*: HTMLElement | Text*/ = void 0;
 
         switch (positionType) {
           case 'START':
-            node = currentSelection.anchorNode;
+            _node = currentSelection.anchorNode;
             // if (!(node instanceof Text)) {
             //   node = node.childNodes[currentSelection.anchorOffset]
             // }
             break;
 
           case 'END':
-            node = currentSelection.focusNode;
+            _node = currentSelection.focusNode;
             // if (!(node instanceof Text)) {
             //   node = node.childNodes[currentSelection.focusOffset]
             // }
             break;
 
           default:
-            node = currentSelection.focusNode;
+            _node = currentSelection.focusNode;
           // if (!(node instanceof Text)) {
           //   node = node.childNodes[currentSelection.focusOffset]
           // }
         }
 
-        if (!node) {
+        if (!_node) {
           return null;
         }
 
-        var rowInfo /*: ?RowInfo*/ = this._getRowInfo(node);
+        var rowInfo /*: ?RowInfo*/ = this._getRowInfo(_node);
 
         if (!rowInfo) {
           return null;
@@ -801,7 +819,7 @@ var Lighditor = function () {
 
         var rangeBeforeNodeInRow = document.createRange();
         rangeBeforeNodeInRow.selectNodeContents(rowInfo.container);
-        rangeBeforeNodeInRow.setEnd(node, 0);
+        rangeBeforeNodeInRow.setEnd(_node, 0);
 
         return {
           row: rowInfo.row,

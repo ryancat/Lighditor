@@ -416,10 +416,11 @@ class Lighditor {
     // Manually set text content
     if (Lighditor.util.getKeycode(evt) === Lighditor.util.keycode.BACKSPACE
       && this._isCaretSelection(this.getSelection())
-      && cursorPosition.column === 0) {
+      && cursorPosition.column === 0
+      && cursorPosition.row > 0) {
       // When the selection is a cursor, and user hits backspace key at the
       // beginning of a row, Chrome will remove the new line element at the
-      // previous row. Let's add it back
+      // previous row if there is one. Let's add it back
       evt.preventDefault()
 
       // Update the selection state to the prev line
@@ -553,7 +554,7 @@ class Lighditor {
    */
   _compileTextContent (): string {
     let contents: string = '',
-        newlineQueue: string[] = []
+        isNewlineDirty: boolean = false
 
     this._dfsTraverseNode((node: Node) => {
       if (node instanceof Text) {
@@ -561,8 +562,8 @@ class Lighditor {
       }
 
       if (this._isRowNode(node)) {
-        contents += newlineQueue.pop() || ''
-        newlineQueue.push('\n')
+        contents += isNewlineDirty ? '\n' : ''
+        isNewlineDirty = true
       }
 
     })
@@ -622,19 +623,21 @@ class Lighditor {
    * Keep goes up and get the row node from current node.
    * Also calculate the row for given node
    */
-  _getRowInfo (node: Node): ?RowInfo {
+  _getRowInfo (node: ?Node): ?RowInfo {
     let currentNode = node
 
     while (currentNode && currentNode !== this.editorElement) {
-      if (this._isRowNode(currentNode)) {
+      if (currentNode instanceof HTMLElement
+        && currentNode.dataset['lighditorType'] === 'row') {
         // Found nearest row container
         let rowCount = 0
         let n = currentNode
+        let parentNodeInfo = this._getRowInfo(currentNode.parentElement)
         for (; (n = n.previousSibling); rowCount++) {}
 
         return {
           container: currentNode,
-          row: rowCount
+          row: rowCount + (parentNodeInfo ? parentNodeInfo.row : 0)
         }
       }
 
@@ -665,13 +668,27 @@ class Lighditor {
     }
   }
 
+  _areAllNodes (nodes: NodeList<Node>, callback: (node: Node) => boolean): boolean {
+    let result = true,
+        i: number = 0,
+        count: number = nodes.length
+
+    for (; i < count; i++) {
+      result = result && callback(nodes[i])
+    }
+
+    return result
+  }
+
   /**
    * Return true if the given node should be represented as a single row
    */
   _isRowNode (node: Node): boolean {
     // return node.parentElement === this.editorElement
     if (node instanceof HTMLElement) {
-      return node.dataset && node.dataset['lighditorType'] === 'row'
+      return node.dataset
+        && node.dataset['lighditorType'] === 'row'
+        && this._areAllNodes(node.childNodes, (n) => { return !this._isRowNode(n) })
     } else {
       return false
     }
