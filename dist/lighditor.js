@@ -434,9 +434,11 @@ var Lighditor = function () {
         this.setTextContent(this._insertTextAtPosition('\n', cursorPosition));
       }
 
-      if (Lighditor.util.getKeycode(evt) === Lighditor.util.keycode.BACKSPACE && cursorPosition.column === 0) {
-        // When hit backspace key at the beginning of a row, Chrome will remove
-        // the new line element at the previous row. Let's add it back
+      // Manually set text content
+      if (Lighditor.util.getKeycode(evt) === Lighditor.util.keycode.BACKSPACE && this._isCaretSelection(this.getSelection()) && cursorPosition.column === 0) {
+        // When the selection is a cursor, and user hits backspace key at the
+        // beginning of a row, Chrome will remove the new line element at the
+        // previous row. Let's add it back
         evt.preventDefault();
 
         // Update the selection state to the prev line
@@ -455,19 +457,7 @@ var Lighditor = function () {
           }
         });
 
-        // Manually set text content
-        var _selection /*: Selection*/ = this.getSelection();
-        if (_selection) {
-          if (_selection.start.column === _selection.end.column && _selection.start.row === _selection.end.row) {
-            // We have no range selection, only remove text at cursor position
-            this.setTextContent(this._removeTextAtPosition(cursorPosition));
-          } else {
-            // We need to remove all selecited text
-            this.setTextContent(this._removeTextInSelection(_selection));
-          }
-        } else {
-          this.setTextContent(this._removeTextAtPosition(cursorPosition));
-        }
+        this.setTextContent(this._removeTextAtPosition(cursorPosition));
       }
     }
   }, {
@@ -754,6 +744,11 @@ var Lighditor = function () {
         return false;
       }
     }
+  }, {
+    key: '_isCaretSelection',
+    value: function _isCaretSelection(selection /*: Selection*/) /*: boolean*/ {
+      return selection && selection.start.row === selection.end.row && selection.start.column === selection.end.column;
+    }
 
     /***** Queue phase *****/
 
@@ -947,9 +942,9 @@ var Lighditor = function () {
           return side;
         };
 
-        var _selection2 = this.editorState.selection;
+        var _selection = this.editorState.selection;
 
-        if (!_selection2) {
+        if (!_selection) {
           return;
         }
 
@@ -957,12 +952,12 @@ var Lighditor = function () {
             rangeStart /*: Position*/ = void 0,
             rangeEnd /*: Position*/ = void 0;
 
-        if (this._isRangeReversed(_selection2)) {
-          rangeStart = _selection2.end;
-          rangeEnd = _selection2.start;
+        if (this._isRangeReversed(_selection)) {
+          rangeStart = _selection.end;
+          rangeEnd = _selection.start;
         } else {
-          rangeStart = _selection2.start;
-          rangeEnd = _selection2.end;
+          rangeStart = _selection.start;
+          rangeEnd = _selection.end;
         }
 
         var rangeStartRowElement = this._getRowElementByIndex(rangeStart.row),

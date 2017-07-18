@@ -413,10 +413,13 @@ class Lighditor {
       this.setTextContent(this._insertTextAtPosition('\n', cursorPosition))
     }
 
+    // Manually set text content
     if (Lighditor.util.getKeycode(evt) === Lighditor.util.keycode.BACKSPACE
+      && this._isCaretSelection(this.getSelection())
       && cursorPosition.column === 0) {
-      // When hit backspace key at the beginning of a row, Chrome will remove
-      // the new line element at the previous row. Let's add it back
+      // When the selection is a cursor, and user hits backspace key at the
+      // beginning of a row, Chrome will remove the new line element at the
+      // previous row. Let's add it back
       evt.preventDefault()
 
       // Update the selection state to the prev line
@@ -435,21 +438,7 @@ class Lighditor {
         }
       })
 
-      // Manually set text content
-      let selection: Selection = this.getSelection()
-      if (selection) {
-        if (selection.start.column === selection.end.column
-          && selection.start.row === selection.end.row) {
-          // We have no range selection, only remove text at cursor position
-          this.setTextContent(this._removeTextAtPosition(cursorPosition))
-        }
-        else {
-          // We need to remove all selecited text
-          this.setTextContent(this._removeTextInSelection(selection))
-        }
-      } else {
-        this.setTextContent(this._removeTextAtPosition(cursorPosition))
-      }
+      this.setTextContent(this._removeTextAtPosition(cursorPosition))
     }
   }
 
@@ -702,6 +691,12 @@ class Lighditor {
     } else {
       return false
     }
+  }
+
+  _isCaretSelection (selection: Selection): boolean {
+    return selection
+      && selection.start.row === selection.end.row
+      && selection.start.column === selection.end.column
   }
 
   /***** Queue phase *****/
