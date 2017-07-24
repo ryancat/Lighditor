@@ -225,6 +225,9 @@ var Lighditor = function () {
     Lighditor.debug(function () {
       window.lighditor = _this;
     });
+
+    // Some testing logic for jison
+
   }
 
   // Create a instance of Lighditor class
@@ -334,25 +337,23 @@ var Lighditor = function () {
   }, {
     key: '_render',
     value: function _render() /*: void*/ {
-      var isTextContentChange /*: boolean*/ = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : true;
+      // Render the text content
+      var textContent /*: string*/ = this.editorState.textContent,
+          textContentRows /*: string[]*/ = textContent.split('\n'),
+          html /*: string*/ = '',
+          numOfRows /*: number*/ = textContentRows.length;
 
+      // if (textContent === '') {
+      //   return
+      // }
 
-      if (isTextContentChange) {
-        // Render the text content
-        var _textContent /*: string*/ = this.editorState.textContent,
-            textContentRows /*: string[]*/ = _textContent.split('\n'),
-            html /*: string*/ = '',
-            numOfRows /*: number*/ = textContentRows.length;
+      textContentRows.forEach(function (textContentRow, row) {
+        var newLineHTML = row !== numOfRows - 1 ? '<br class="' + EditorClass.EDITOR_NEWLINE + '" data-lighditor-type="newline">' : '';
+        html += '<div class="' + EditorClass.EDITOR_ROW + '" data-lighditor-type="row">' + textContentRow + newLineHTML + '</div>';
+        // html += '<div class="' + EditorClass.EDITOR_ROW + '" data-lighditor-type="row">' + textContentRow + '</div>'
+      });
 
-        textContentRows.forEach(function (textContentRow, row) {
-          var newLineHTML = row !== numOfRows - 1 ? '<br class="' + EditorClass.EDITOR_NEWLINE + '" data-lighditor-type="newline">' : '';
-          html += '<div class="' + EditorClass.EDITOR_ROW + '" data-lighditor-type="row">' + textContentRow + newLineHTML + '</div>';
-          // html += '<div class="' + EditorClass.EDITOR_ROW + '" data-lighditor-type="row">' + textContentRow + '</div>'
-        });
-
-        this.editorElement.innerHTML = html;
-      }
-
+      this.editorElement.innerHTML = html;
       // Attach the current selection/cursor
       this._applySelection();
     }
@@ -380,7 +381,9 @@ var Lighditor = function () {
 
       this.editorState = _extends({}, editorState);
 
-      this._render(!oldEditorState || this.editorState.textContent !== oldEditorState.textContent);
+      if (!oldEditorState || this.editorState.textContent !== oldEditorState.textContent) {
+        this._render();
+      }
     }
 
     /***** Events *****/
@@ -469,15 +472,17 @@ var Lighditor = function () {
         return;
       }
 
-      // // TODO: update selection if arrow key is up
       this._updateSelection();
-
       this.setTextContent(this._compileTextContent());
     }
   }, {
     key: '_handleMouseup',
     value: function _handleMouseup(evt /*: MouseEvent*/) {
-      this._updateSelection();
+      var _this2 = this;
+
+      setTimeout(function () {
+        return _this2._updateSelection();
+      });
     }
 
     /***** Lifecycle *****/
@@ -584,7 +589,7 @@ var Lighditor = function () {
   }, {
     key: '_compileTextContent',
     value: function _compileTextContent() /*: string*/ {
-      var _this2 = this;
+      var _this3 = this;
 
       var contents /*: string*/ = '',
           isNewlineDirty /*: boolean*/ = false;
@@ -594,11 +599,15 @@ var Lighditor = function () {
           contents += node.textContent;
         }
 
-        if (_this2._isRowNode(node)) {
+        if (_this3._isRowNode(node)) {
           contents += isNewlineDirty ? '\n' : '';
           isNewlineDirty = true;
         }
       });
+
+      // contents = Array.prototype.reduce.call(this.editorElement.childNodes, (text, node) => {
+      //   return text + (node.nodeValue ||  '\n' + node.textContent)
+      // }, '')
 
       return contents;
     }
@@ -685,6 +694,8 @@ var Lighditor = function () {
         currentNode = currentNode.parentElement;
       }
 
+      if (currentNode === this.editorElement) {}
+
       return null;
     }
 
@@ -733,12 +744,12 @@ var Lighditor = function () {
   }, {
     key: '_isRowNode',
     value: function _isRowNode(node /*: Node*/) /*: boolean*/ {
-      var _this3 = this;
+      var _this4 = this;
 
       // return node.parentElement === this.editorElement
       if (node instanceof HTMLElement) {
         return node.dataset && node.dataset['lighditorType'] === 'row' && this._areAllNodes(node.childNodes, function (n) {
-          return !_this3._isRowNode(n);
+          return !_this4._isRowNode(n);
         });
       } else {
         return false;
@@ -859,7 +870,13 @@ var Lighditor = function () {
   }, {
     key: '_isRangeReversed',
     value: function _isRangeReversed(selection /*: Selection*/) /*: boolean*/ {
-      return selection.start.row > selection.end.row || selection.start.column > selection.end.column;
+      var startRow /*: number*/ = selection.start.row,
+          startColumn /*: number*/ = selection.start.column,
+          endRow /*: number*/ = selection.end.row,
+          endColumn /*: number*/ = selection.end.column;
+
+      if (startRow < endRow) return false;else if (startRow > endRow) return true;else return startColumn > endColumn;
+      // return selection.start.row > selection.end.row || selection.start.column > selection.end.column
     }
   }, {
     key: '_getTextContentByOffset',
@@ -896,33 +913,34 @@ var Lighditor = function () {
 
         if (selectionStartPosition && selectionEndPosition) {
 
-          var rangeStartColumn /*: number*/ = void 0,
-              rangeEndColumn /*: number*/ = void 0,
-              range = currentSelection.getRangeAt(0);
+          // let rangeStartColumn: number,
+          //     rangeEndColumn: number,
+          //     range = currentSelection.getRangeAt(0)
 
-          // Find the text content length for range start and end offset
-          var rangeStartOffset /*: number*/ = this._getTextContentByOffset(range.startContainer, range.startOffset).length,
-              rangeEndOffset /*: number*/ = this._getTextContentByOffset(range.endContainer, range.endOffset).length;
+          // // Find the text content length for range start and end offset
+          // let rangeStartOffset: number = this._getTextContentByOffset(range.startContainer, range.startOffset).length,
+          //     rangeEndOffset: number = this._getTextContentByOffset(range.endContainer, range.endOffset).length
 
-          if (this._isRangeReversed({
-            start: selectionStartPosition,
-            end: selectionEndPosition
-          })) {
-            rangeStartColumn = rangeEndOffset;
-            rangeEndColumn = rangeStartOffset;
-          } else {
-            rangeStartColumn = rangeStartOffset;
-            rangeEndColumn = rangeEndOffset;
-          }
+          // if (this._isRangeReversed({
+          //       start: selectionStartPosition,
+          //       end: selectionEndPosition
+          //     })) {
+          //   rangeStartColumn = rangeEndOffset
+          //   rangeEndColumn = rangeStartOffset
+          // } else {
+          //   rangeStartColumn = rangeStartOffset
+          //   rangeEndColumn = rangeEndOffset
+          var startColumnOffset /*: number*/ = this._getTextContentByOffset(currentSelection.anchorNode, currentSelection.anchorOffset).length,
+              endColumnOffset /*: number*/ = this._getTextContentByOffset(currentSelection.focusNode, currentSelection.focusOffset).length;
 
           this.setSelection({
             start: {
               row: selectionStartPosition.row,
-              column: selectionStartPosition.column + rangeStartColumn
+              column: selectionStartPosition.column + startColumnOffset
             },
             end: {
               row: selectionEndPosition.row,
-              column: selectionEndPosition.column + rangeEndColumn
+              column: selectionEndPosition.column + endColumnOffset
             }
           });
         }

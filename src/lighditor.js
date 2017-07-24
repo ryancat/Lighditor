@@ -131,6 +131,10 @@ class Lighditor {
     // For debugging
     Lighditor.debug(() => { window.lighditor = this })
 
+
+    // Some testing logic for jison
+
+
   }
 
   // Create a instance of Lighditor class
@@ -320,24 +324,24 @@ class Lighditor {
   /**
    * Render the editor element inner html based on current editor state
    */
-  _render (isTextContentChange: boolean = true): void {
+  _render (): void {
+    // Render the text content
+    let textContent: string = this.editorState.textContent,
+        textContentRows: string[] = textContent.split('\n'),
+        html: string = '',
+        numOfRows: number = textContentRows.length
 
-    if (isTextContentChange) {
-      // Render the text content
-      let textContent: string = this.editorState.textContent,
-          textContentRows: string[] = textContent.split('\n'),
-          html: string = '',
-          numOfRows: number = textContentRows.length
+    // if (textContent === '') {
+    //   return
+    // }
 
-      textContentRows.forEach((textContentRow, row) => {
-        let newLineHTML = row !== numOfRows - 1 ? '<br class="' + EditorClass.EDITOR_NEWLINE + '" data-lighditor-type="newline">' : ''
-        html += '<div class="' + EditorClass.EDITOR_ROW + '" data-lighditor-type="row">' + textContentRow + newLineHTML + '</div>'
-        // html += '<div class="' + EditorClass.EDITOR_ROW + '" data-lighditor-type="row">' + textContentRow + '</div>'
-      })
+    textContentRows.forEach((textContentRow, row) => {
+      let newLineHTML = row !== numOfRows - 1 ? '<br class="' + EditorClass.EDITOR_NEWLINE + '" data-lighditor-type="newline">' : ''
+      html += '<div class="' + EditorClass.EDITOR_ROW + '" data-lighditor-type="row">' + textContentRow + newLineHTML + '</div>'
+      // html += '<div class="' + EditorClass.EDITOR_ROW + '" data-lighditor-type="row">' + textContentRow + '</div>'
+    })
 
-      this.editorElement.innerHTML = html
-    }
-
+    this.editorElement.innerHTML = html
     // Attach the current selection/cursor
     this._applySelection()
   }
@@ -365,7 +369,9 @@ class Lighditor {
       ...editorState
     }
 
-    this._render(!oldEditorState || this.editorState.textContent !== oldEditorState.textContent)
+    if (!oldEditorState || this.editorState.textContent !== oldEditorState.textContent) {
+      this._render()
+    }
   }
 
   /***** Events *****/
@@ -450,14 +456,12 @@ class Lighditor {
       return
     }
 
-    // // TODO: update selection if arrow key is up
     this._updateSelection()
-
     this.setTextContent(this._compileTextContent())
   }
 
   _handleMouseup (evt: MouseEvent) {
-    this._updateSelection()
+    setTimeout(() => this._updateSelection())
   }
 
   /***** Lifecycle *****/
@@ -568,6 +572,10 @@ class Lighditor {
 
     })
 
+    // contents = Array.prototype.reduce.call(this.editorElement.childNodes, (text, node) => {
+    //   return text + (node.nodeValue ||  '\n' + node.textContent)
+    // }, '')
+
     return contents
   }
 
@@ -642,6 +650,10 @@ class Lighditor {
       }
 
       currentNode = currentNode.parentElement
+    }
+
+    if (currentNode === this.editorElement) {
+
     }
 
     return null
@@ -796,7 +808,17 @@ class Lighditor {
    * start to end
    */
   _isRangeReversed (selection: Selection): boolean {
-    return selection.start.row > selection.end.row || selection.start.column > selection.end.column
+    let startRow: number = selection.start.row,
+        startColumn: number = selection.start.column,
+        endRow: number = selection.end.row,
+        endColumn: number = selection.end.column
+
+    if (startRow < endRow)
+      return false
+    else if (startRow > endRow)
+      return true
+    else return startColumn > endColumn
+    // return selection.start.row > selection.end.row || selection.start.column > selection.end.column
   }
 
   _getTextContentByOffset (container: Node, offset: number): string {
@@ -829,33 +851,36 @@ class Lighditor {
 
       if (selectionStartPosition && selectionEndPosition) {
 
-        let rangeStartColumn: number,
-            rangeEndColumn: number,
-            range = currentSelection.getRangeAt(0)
+        // let rangeStartColumn: number,
+        //     rangeEndColumn: number,
+        //     range = currentSelection.getRangeAt(0)
 
-        // Find the text content length for range start and end offset
-        let rangeStartOffset: number = this._getTextContentByOffset(range.startContainer, range.startOffset).length,
-            rangeEndOffset: number = this._getTextContentByOffset(range.endContainer, range.endOffset).length
+        // // Find the text content length for range start and end offset
+        // let rangeStartOffset: number = this._getTextContentByOffset(range.startContainer, range.startOffset).length,
+        //     rangeEndOffset: number = this._getTextContentByOffset(range.endContainer, range.endOffset).length
 
-        if (this._isRangeReversed({
-              start: selectionStartPosition,
-              end: selectionEndPosition
-            })) {
-          rangeStartColumn = rangeEndOffset
-          rangeEndColumn = rangeStartOffset
-        } else {
-          rangeStartColumn = rangeStartOffset
-          rangeEndColumn = rangeEndOffset
-        }
+        // if (this._isRangeReversed({
+        //       start: selectionStartPosition,
+        //       end: selectionEndPosition
+        //     })) {
+        //   rangeStartColumn = rangeEndOffset
+        //   rangeEndColumn = rangeStartOffset
+        // } else {
+        //   rangeStartColumn = rangeStartOffset
+        //   rangeEndColumn = rangeEndOffset
+        // }
+
+        let startColumnOffset: number = this._getTextContentByOffset(currentSelection.anchorNode, currentSelection.anchorOffset).length,
+            endColumnOffset: number = this._getTextContentByOffset(currentSelection.focusNode, currentSelection.focusOffset).length
 
         this.setSelection({
           start: {
             row: selectionStartPosition.row,
-            column: selectionStartPosition.column + rangeStartColumn
+            column: selectionStartPosition.column + startColumnOffset
           },
           end: {
             row: selectionEndPosition.row,
-            column: selectionEndPosition.column + rangeEndColumn
+            column: selectionEndPosition.column + endColumnOffset
           }
         })
       }
